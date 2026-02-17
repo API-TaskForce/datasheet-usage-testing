@@ -1,0 +1,32 @@
+{
+  "name": "datasheet-usage-testing",
+  "version": "1.0.0",
+  "description": "Implementing an efficient way of testing an api usage limit.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon --watch src -e js,json --exec node src/server.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/API-TaskForce/datasheet-usage-testing.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/API-TaskForce/datasheet-usage-testing/issues"
+  },
+  "homepage": "https://github.com/API-TaskForce/datasheet-usage-testing#readme",
+  "dependencies": {
+    "axios": "^1.13.5",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "joi": "^18.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}
