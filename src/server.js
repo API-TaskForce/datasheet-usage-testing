@@ -16,7 +16,13 @@ app.get('/', (req, res) => res.json({ service: 'api-limiter-service', status: 'o
 // error handler
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`api-limiter-service listening on http://localhost:${PORT}`);
-});
+import { success } from './lib/log.js';
+
+export default app;
+
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    success(`api-limiter-service listening on http://localhost:${PORT}`);
+  });
+}

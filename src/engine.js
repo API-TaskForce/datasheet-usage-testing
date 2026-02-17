@@ -1,9 +1,7 @@
 import { request as httpRequest } from './lib/httpClient.js';
 import { createJob, updateJob, getJob } from './db.js';
-
-function makeId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-}
+import { makeId, sleep } from './lib/utils.js';
+import { error as logError, success as logSuccess } from './lib/log.js';
 
 async function startTest(config) {
   const id = makeId();
@@ -20,7 +18,7 @@ async function startTest(config) {
   await createJob(job);
 
   // run asynchronously
-  setImmediate(() => runJob(id).catch(err => console.error('Engine error:', err)));
+  setImmediate(() => runJob(id).catch(err => logError(`Engine error: ${err && err.stack ? err.stack : err}`)));
 
   return job;
 }
@@ -65,7 +63,7 @@ async function runJob(id) {
         await updateJob(id, { results: [...results] });
       }
 
-      if (intervalMs) await new Promise(r => setTimeout(r, intervalMs));
+      if (intervalMs) await sleep(intervalMs);
     }
   }
 
@@ -81,6 +79,7 @@ async function runJob(id) {
   await Promise.all(workers);
 
   await updateJob(id, { status: 'completed', finishedAt: new Date().toISOString(), results: [...results] });
+  logSuccess(`job ${id} completed — ${results.length} results`);
   return getJob(id);
 }
 
