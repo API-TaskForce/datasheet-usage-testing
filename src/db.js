@@ -1,16 +1,23 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'db.json');
+function dbFilePath() {
+  return process.env.DB_FILE || path.join(process.cwd(), 'data', 'db.json');
+}
 
 async function readDb() {
+  const file = dbFilePath();
   try {
-    const content = await fs.readFile(DB_FILE, 'utf8');
-    return JSON.parse(content || '{}');
+    const content = await fs.readFile(file, 'utf8');
+    try {
+      return JSON.parse(content || '{}');
+    } catch (parseErr) {
+      // backup corrupted file and return empty DB
+      const backup = `${file}.corrupt-${Date.now()}`;
+      await fs.writeFile(backup, content, 'utf8').catch(() => {});
+      console.error(`db.json parse error - backed up to ${backup}`);
+      return {};
+    }
   } catch (err) {
     if (err.code === 'ENOENT') return {};
     throw err;
@@ -18,8 +25,9 @@ async function readDb() {
 }
 
 async function writeDb(obj) {
-  await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
-  await fs.writeFile(DB_FILE, JSON.stringify(obj, null, 2), 'utf8');
+  const file = dbFilePath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(obj, null, 2), 'utf8');
 }
 
 async function createJob(job) {

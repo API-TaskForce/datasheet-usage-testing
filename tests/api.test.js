@@ -4,7 +4,8 @@ import http from 'http';
 import path from 'path';
 import { promises as fs } from 'fs';
 
-const TEST_DB = path.join(process.cwd(), 'data', 'test-db.json');
+// use a per-process test DB to avoid collisions when Jest runs suites in parallel
+const TEST_DB = path.join(process.cwd(), 'data', `test-db.${process.pid}.json`);
 
 describe('API Limiter - Endpoints', () => {
   let targetServer;

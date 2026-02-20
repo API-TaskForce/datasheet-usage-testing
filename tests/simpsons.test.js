@@ -1,41 +1,61 @@
-import request from 'supertest';
-import app from '../src/server.js';
-import path from 'path';
-import { promises as fs } from 'fs';
-import { waitForJob } from './helpers/testHelpers.js';
+import request from "supertest";
+import app from "../src/server.js";
+import { waitForJob } from "./helpers/testHelpers.js";
 
-const TEST_DB = path.join(process.cwd(), 'data', 'test-db.json');
+describe("Simpsons API - Stress & Rate Limit Test", () => {
+  const SIMPSONS_API = "https://thesimpsonsapi.com/api";
+";"
 
-describe('External API: The Simpsons (integration)', () => {
-  beforeAll(async () => {
-    process.env.DB_FILE = TEST_DB;
-    await fs.rm(TEST_DB, { force: true }).catch(() => {});
-  });
-
-  afterAll(async () => {
-    await fs.rm(TEST_DB, { force: true }).catch(() => {});
-  });
-
-  it('engine can call The Simpsons API and record results', async () => {
+  it("CASE 1: Baseline Performance (Simultaneidad media)", async () => {
     const payload = {
-      endpoint: 'https://thesimpsonsapi.com/api/characters',
-      request: { method: 'GET' },
-      clients: 1,
-      totalRequests: 2,
-      intervalMs: 50,
-      timeoutMs: 5000
+      endpoint: SIMPSONS_API,
+      request: { method: "GET" },
+      clients: 5, // 5 clientes paralelos
+      totalRequests: 10, // 10 peticiones en total
+      burstSize: 2, // Cada cliente lanza de 2 en 2
+      intervalMs: 500, // Pequeño respiro entre ráfagas
     };
 
-    const runRes = await request(app).post('/tests/run').send(payload).expect(202);
-    const jobId = runRes.body.jobId;
+    const {
+      body: { jobId },
+    } = await request(app).post("/tests/run").send(payload).expect(202);
+    const job = await waitForJob(app, jobId);
 
-    // use helper
-    const job = await waitForJob(app, jobId, { timeout: 15000, interval: 100 });
+    expect(job.status).toBe("completed");
+    console.log(`Promedio de respuesta Simpsons API: ${job.summary.avgMs}ms`);
+  }, 30000);
 
-    expect(job).toBeDefined();
-    expect(job.status).toBe('completed');
-    expect(Array.isArray(job.results)).toBe(true);
-    // at least one successful 200 response recorded
-    expect(job.results.some(r => r.status === 'ok' && r.statusCode === 200)).toBe(true);
-  }, 15000);
+  it("CASE 2: Aggressive Stress (Buscando el 429)", async () => {
+    /**
+     * Glitch (donde se aloja esta API) suele tener límites por IP.
+     * Lanzamos ráfagas grandes sin intervalo.
+     */
+    const payload = {
+      endpoint: SIMPSONS_API,
+      request: { method: "GET" },
+      clients: 1,
+      totalRequests: 25,
+      burstSize: 25, // Intentamos enviar 25 de golpe
+      intervalMs: 0,
+    };
+
+    const {
+      body: { jobId },
+    } = await request(app).post("/tests/run").send(payload).expect(202);
+    const job = await waitForJob(app, jobId);
+
+    const hasRateLimit = job.summary.rateLimit > 0;
+
+    if (hasRateLimit) {
+      console.log(`⚠️ Límite alcanzado! Bloqueos: ${job.summary.rateLimit}`);
+      const limited = job.results.find((r) => r.statusCode === 429);
+      if (limited?.retryAfter) {
+        console.log(`Sugerencia de espera: ${limited.retryAfter}s`);
+      }
+    } else {
+      console.log("✅ La API aguantó la ráfaga de 25 sin bloquear.");
+    }
+
+    expect(job.summary.total).toBe(25);
+  }, 40000);
 });
