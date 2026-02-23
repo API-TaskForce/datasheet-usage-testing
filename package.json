@@ -4,6 +4,7 @@
   "description": "Implementing an efficient way of testing an api usage limit.",
   "private": true,
   "scripts": {
+    "bootstrap": "concurrently \"npm ci --workspace=backend\" \"npm ci --workspace=frontend\"",
     "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
     "build": "npm run build --workspace=frontend",
     "preview": "npm run preview --workspace=frontend",

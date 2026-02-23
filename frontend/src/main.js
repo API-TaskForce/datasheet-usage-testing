@@ -1,9 +1,2 @@
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import App from './App.vue'
-import './style.css'
-
-const app = createApp(App)
-
-app.use(createPinia())
-app.mount('#app')
+// legacy Vue entry removed; keep file for reference
+console.warn('main.js (Vue) is deprecated in this React migration. Use main.jsx instead.')
