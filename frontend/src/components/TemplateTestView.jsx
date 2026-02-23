@@ -69,7 +69,10 @@ export default function TemplateTestView({ template }) {
         { type: 'res', text: responseText.slice(0, 2000) },
       ]);
     } catch (err) {
-      setConsoleLines((l) => [...l, { type: 'res', text: `ERROR: ${err.message}` }]);
+      console.error('[TemplateTestView] Error during request:', err);
+      const errorMsg = err.response?.data?.error || err.response?.data?.details || err.message;
+      const fullMsg = `ERROR (${err.response?.status || 'unknown'}): ${errorMsg}`;
+      setConsoleLines((l) => [...l, { type: 'res', text: fullMsg }]);
     }
   };
 

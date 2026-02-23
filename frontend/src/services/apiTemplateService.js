@@ -13,8 +13,12 @@ const instance = axios.create({
 instance.interceptors.response.use(
   (response) => response,
   (error) => {
-    const message = error.response?.data?.error || error.message || 'Unknown error';
-    return Promise.reject(new Error(message));
+    console.error('[axios error]', error.response?.status, error.response?.data);
+    const message = error.response?.data?.error || error.response?.data?.details || error.message || 'Unknown error';
+    const errorObj = new Error(message);
+    errorObj.status = error.response?.status;
+    errorObj.response = error.response;
+    return Promise.reject(errorObj);
   }
 );
 
@@ -76,13 +80,20 @@ export async function deleteTemplate(id) {
  * @returns {Promise<object>} Response with { status, statusText, data, headers }
  */
 export async function proxyRequest(url, method = 'GET', headers = {}, body = null) {
-  const response = await instance.post('/proxy', {
-    url,
-    method,
-    headers,
-    body,
-  });
-  return response.data;
+  try {
+    console.log('[proxyRequest] Sending request:', { url, method, headers, body });
+    const response = await instance.post('/proxy', {
+      url,
+      method,
+      headers,
+      body,
+    });
+    console.log('[proxyRequest] Response received:', response.data);
+    return response.data;
+  } catch (err) {
+    console.error('[proxyRequest] Error:', err);
+    throw err;
+  }
 }
 
 export default instance;

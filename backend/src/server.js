@@ -19,21 +19,21 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
+
+// Proxy endpoint for external API calls (solves CORS) - MUST be before other routes
+// POST /proxy with { url, method, headers, body }
+app.post('/proxy', proxyRequest);
+
+// health
+app.get('/', (req, res) => res.json({ service: 'api-limiter-service', status: 'ok' }));
 
 // API Routes
 // /tests -> for test execution and retrieval
 // /templates -> for API template management
 app.use('/tests', routes);
 app.use('/templates', routes);
-
-// Proxy endpoint for external API calls (solves CORS)
-// POST /proxy with { url, method, headers, body }
-app.post('/proxy', proxyRequest);
-
-// health
-app.get('/', (req, res) => res.json({ service: 'api-limiter-service', status: 'ok' }));
 
 // error handler
 app.use(errorHandler);

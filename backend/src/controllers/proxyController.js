@@ -1,5 +1,4 @@
 import { log, error as logError } from '../lib/log.js';
-import { httpClient } from '../lib/httpClient.js';
 
 /**
  * Proxy endpoint to forward API requests from frontend to external APIs
@@ -9,14 +8,26 @@ export const proxyRequest = async (req, res) => {
   try {
     const { url, method = 'GET', headers = {}, body = null } = req.body;
 
+    log(`Proxy request received: ${method} ${url}`);
+
     // Validate URL
     if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
+      log('URL parameter missing');
+      return res.status(400).json({ error: 'URL parameter is required' });
+    }
+
+    // Validate URL format
+    let urlObj;
+    try {
+      urlObj = new URL(url);
+    } catch (err) {
+      log(`Invalid URL format: ${url}`);
+      return res.status(400).json({ error: `Invalid URL format: ${err.message}` });
     }
 
     // Prevent access to internal/local URLs
-    const urlObj = new URL(url);
-    if (urlObj.hostname === 'localhost' || urlObj.hostname === '127.0.0.1') {
+    if (urlObj.hostname === 'localhost' || urlObj.hostname === '127.0.0.1' || urlObj.hostname === '0.0.0.0') {
+      log(`Blocked local URL: ${url}`);
       return res.status(403).json({ error: 'Access to local URLs is not allowed' });
     }
 
@@ -30,12 +41,31 @@ export const proxyRequest = async (req, res) => {
       },
     };
 
+    // Add body for methods that support it
     if (body && ['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
       options.body = typeof body === 'string' ? body : JSON.stringify(body);
     }
 
-    const response = await fetch(url, options);
-    const responseText = await response.text();
+    // Make the request
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (fetchErr) {
+      log(`Fetch error: ${fetchErr.message}`);
+      return res.status(502).json({ 
+        error: 'Bad Gateway - Failed to reach external API',
+        details: fetchErr.message 
+      });
+    }
+
+    // Get response text
+    let responseText;
+    try {
+      responseText = await response.text();
+    } catch (textErr) {
+      log(`Text parsing error: ${textErr.message}`);
+      responseText = '';
+    }
 
     // Parse response body
     let responseBody;
@@ -64,6 +94,8 @@ export const proxyRequest = async (req, res) => {
       if (value) rateLimitHeaders[h] = value;
     });
 
+    log(`Response status: ${response.status} from ${url}`);
+
     // Return response with rate limit headers
     res.status(response.status).json({
       status: response.status,
@@ -73,6 +105,10 @@ export const proxyRequest = async (req, res) => {
     });
   } catch (err) {
     logError(`Proxy request error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    logError(err.stack);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: err.message 
+    });
   }
 };
