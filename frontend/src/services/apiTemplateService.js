@@ -67,4 +67,22 @@ export async function deleteTemplate(id) {
   await instance.delete(`/templates/${id}`);
 }
 
+/**
+ * Proxy request to external API (solves CORS)
+ * @param {string} url - Full URL to fetch
+ * @param {string} method - HTTP method (GET, POST, etc.)
+ * @param {object} headers - Custom headers
+ * @param {object} body - Request body for POST/PUT/PATCH
+ * @returns {Promise<object>} Response with { status, statusText, data, headers }
+ */
+export async function proxyRequest(url, method = 'GET', headers = {}, body = null) {
+  const response = await instance.post('/proxy', {
+    url,
+    method,
+    headers,
+    body,
+  });
+  return response.data;
+}
+
 export default instance;

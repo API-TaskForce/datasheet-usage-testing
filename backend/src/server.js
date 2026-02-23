@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
 import routes from './routes/index.js';
+import { proxyRequest } from './controllers/proxyController.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { requestLogger } from './middlewares/logger.js';
 
@@ -26,6 +27,10 @@ app.use(requestLogger);
 // /templates -> for API template management
 app.use('/tests', routes);
 app.use('/templates', routes);
+
+// Proxy endpoint for external API calls (solves CORS)
+// POST /proxy with { url, method, headers, body }
+app.post('/proxy', proxyRequest);
 
 // health
 app.get('/', (req, res) => res.json({ service: 'api-limiter-service', status: 'ok' }));

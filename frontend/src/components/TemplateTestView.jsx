@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QuotaChart from './QuotaChart.jsx';
+import { proxyRequest } from '../services/apiTemplateService.js';
 
 export default function TemplateTestView({ template }) {
   const [method, setMethod] = useState('GET');
@@ -39,42 +40,23 @@ export default function TemplateTestView({ template }) {
     });
     const start = Date.now();
     try {
-      const res = await fetch(url, {
-        method,
-        headers: hdrs,
-        body: ['GET', 'DELETE'].includes(method) ? undefined : body || undefined,
-      });
+      const proxyRes = await proxyRequest(url, method, hdrs, body || null);
       const t = Date.now() - start;
-      const txt = await res.text().catch(() => '<no body>');
+      
+      // Extract response data
+      const { status, statusText, data, headers: resHeaders } = proxyRes;
+      const responseText = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
 
-      // Extract rate limit headers
-      const rateLimitHeaders = {};
-      const commonHeaders = [
-        'x-ratelimit-limit',
-        'x-ratelimit-remaining',
-        'x-ratelimit-reset',
-        'x-rate-limit-limit',
-        'x-rate-limit-remaining',
-        'x-rate-limit-reset',
-        'ratelimit-limit',
-        'ratelimit-remaining',
-        'ratelimit-reset',
-      ];
-      commonHeaders.forEach((h) => {
-        const value = res.headers.get(h);
-        if (value) rateLimitHeaders[h] = value;
-      });
-      if (Object.keys(rateLimitHeaders).length > 0) {
-        setRateLimit(rateLimitHeaders);
-        // Parse remaining from common headers
-        const remaining =
-          res.headers.get('x-ratelimit-remaining') ||
-          res.headers.get('x-rate-limit-remaining') ||
-          res.headers.get('ratelimit-remaining');
-        const limit =
-          res.headers.get('x-ratelimit-limit') ||
-          res.headers.get('x-rate-limit-limit') ||
-          res.headers.get('ratelimit-limit');
+      // Handle rate limit headers from proxy response
+      if (resHeaders && Object.keys(resHeaders).length > 0) {
+        setRateLimit(resHeaders);
+        // Parse remaining from headers
+        const remaining = resHeaders['x-ratelimit-remaining'] || 
+                         resHeaders['x-rate-limit-remaining'] || 
+                         resHeaders['ratelimit-remaining'];
+        const limit = resHeaders['x-ratelimit-limit'] || 
+                     resHeaders['x-rate-limit-limit'] || 
+                     resHeaders['ratelimit-limit'];
         if (remaining && limit) {
           setQuotaUsed(Math.max(0, parseInt(limit) - parseInt(remaining)));
           setQuotaTotal(parseInt(limit));
@@ -83,8 +65,8 @@ export default function TemplateTestView({ template }) {
 
       setConsoleLines((l) => [
         ...l,
-        { type: 'res', text: `${res.status} ${res.statusText} — ${t}ms` },
-        { type: 'res', text: txt.slice(0, 2000) },
+        { type: 'res', text: `${status} ${statusText} — ${t}ms` },
+        { type: 'res', text: responseText.slice(0, 2000) },
       ]);
     } catch (err) {
       setConsoleLines((l) => [...l, { type: 'res', text: `ERROR: ${err.message}` }]);
