@@ -16,12 +16,12 @@ export default function BaseButton({
   }[variant] || 'bg-blue-600 text-white'
 
   const sizeClass = {
-    sm: 'px-3 py-1 text-sm',
+    sm: 'px-2 py-1 text-sm',
     md: 'px-4 py-2 text-base',
     lg: 'px-5 py-3 text-lg',
   }[size] || 'px-4 py-2 text-base'
 
-  const base = 'rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed'
+  const base = 'gap-2 w-auto flex font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed'
 
   return (
     <button

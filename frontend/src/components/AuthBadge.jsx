@@ -3,6 +3,15 @@ import React, { useState } from 'react'
 export default function AuthBadge({ authMethod, authCredential, compact = false }) {
   const [visible, setVisible] = useState(false)
 
+  // Si no hay método de autenticación
+  if (!authMethod || !authMethod.trim()) {
+    return (
+      <div className={`flex items-center gap-2 ${compact ? '' : ''}`}>
+        <p className="badge badge-warning">No Auth</p>
+      </div>
+    )
+  }
+
   const EyeOpen = (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

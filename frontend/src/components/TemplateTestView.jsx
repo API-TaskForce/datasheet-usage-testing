@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QuotaChart from './QuotaChart.jsx';
+import TestResultModal from './TestResultModal.jsx';
 import { proxyRequest } from '../services/apiTemplateService.js';
 
 export default function TemplateTestView({ template }) {
@@ -11,6 +12,9 @@ export default function TemplateTestView({ template }) {
   const [rateLimit, setRateLimit] = useState({});
   const [quotaUsed, setQuotaUsed] = useState(0);
   const [quotaTotal, setQuotaTotal] = useState(100);
+  const [testResult, setTestResult] = useState(null);
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const consoleRef = useRef();
 
   useEffect(() => {
@@ -33,30 +37,46 @@ export default function TemplateTestView({ template }) {
     const base = template.apiUri || '';
     const p = path.startsWith('/') ? path : '/' + path;
     const url = base.replace(/\/$/, '') + p;
+
+    setIsLoading(true);
     setConsoleLines((l) => [...l, { type: 'req', text: `${method} ${url}` }]);
+
     const hdrs = { 'Content-Type': 'application/json' };
     headers.forEach((h) => {
       if (h.key) hdrs[h.key] = h.value;
     });
+
     const start = Date.now();
     try {
       const proxyRes = await proxyRequest(url, method, hdrs, body || null);
-      const t = Date.now() - start;
-      
+      const duration = Date.now() - start;
+
       // Extract response data
       const { status, statusText, data, headers: resHeaders } = proxyRes;
       const responseText = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+
+      // Store result for modal
+      setTestResult({
+        status,
+        statusText,
+        data,
+        duration,
+        headers: resHeaders || {},
+      });
+      setShowResultModal(true);
 
       // Handle rate limit headers from proxy response
       if (resHeaders && Object.keys(resHeaders).length > 0) {
         setRateLimit(resHeaders);
         // Parse remaining from headers
-        const remaining = resHeaders['x-ratelimit-remaining'] || 
-                         resHeaders['x-rate-limit-remaining'] || 
-                         resHeaders['ratelimit-remaining'];
-        const limit = resHeaders['x-ratelimit-limit'] || 
-                     resHeaders['x-rate-limit-limit'] || 
-                     resHeaders['ratelimit-limit'];
+        const remaining =
+          resHeaders['x-ratelimit-remaining'] ||
+          resHeaders['x-rate-limit-remaining'] ||
+          resHeaders['ratelimit-remaining'];
+        const limit =
+          resHeaders['x-ratelimit-limit'] ||
+          resHeaders['x-rate-limit-limit'] ||
+          resHeaders['ratelimit-limit'];
         if (remaining && limit) {
           setQuotaUsed(Math.max(0, parseInt(limit) - parseInt(remaining)));
           setQuotaTotal(parseInt(limit));
@@ -65,7 +85,7 @@ export default function TemplateTestView({ template }) {
 
       setConsoleLines((l) => [
         ...l,
-        { type: 'res', text: `${status} ${statusText} — ${t}ms` },
+        { type: 'res', text: `${status} ${statusText} — ${duration}ms` },
         { type: 'res', text: responseText.slice(0, 2000) },
       ]);
     } catch (err) {
@@ -73,19 +93,23 @@ export default function TemplateTestView({ template }) {
       const errorMsg = err.response?.data?.error || err.response?.data?.details || err.message;
       const fullMsg = `ERROR (${err.response?.status || 'unknown'}): ${errorMsg}`;
       setConsoleLines((l) => [...l, { type: 'res', text: fullMsg }]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="relative w-full">
-      <div className="flex flex-row lg:flex-row bg-white gap-4 p-4 w-full">
-        <div className="flex flex-col gap-4 flex-1">
-          <p className="form-label">Request</p>
-          <div className="flex gap-2 mb-3">
+    <div className="w-full flex flex-row gap-6 p-6 container-max-width">
+      {/* Request Section */}
+      <div className="section-grid w-full">
+        <div className="section-card ">
+          <p className="form-label mb-4">Request</p>
+
+          <div className="form-row">
             <select
               value={method}
               onChange={(e) => setMethod(e.target.value)}
-              className="form-select w-32"
+              className="form-select w-36 flex-none"
             >
               <option>GET</option>
               <option>POST</option>
@@ -99,37 +123,68 @@ export default function TemplateTestView({ template }) {
               className="form-input flex-1"
               placeholder="/"
             />
+            <button
+              onClick={runTest}
+              className="btn-primary"
+              disabled={isLoading}
+              style={{ opacity: isLoading ? 0.6 : 1, flex: 'none' }}
+            >
+              {isLoading ? 'Testing...' : 'Run Test'}
+            </button>
           </div>
 
-          <div className="mb-3">
+          <div className="mb-4">
             <p className="form-label mb-2">Headers</p>
-            {headers.map((h, idx) => (
-              <div key={idx} className="flex gap-2 mb-2">
-                <input
-                  value={h.key}
-                  onChange={(e) => {
-                    const copy = [...headers];
-                    copy[idx].key = e.target.value;
-                    setHeaders(copy);
-                  }}
-                  className="form-input w-1-3"
-                  placeholder="Key"
-                />
-                <input
-                  value={h.value}
-                  onChange={(e) => {
-                    const copy = [...headers];
-                    copy[idx].value = e.target.value;
-                    setHeaders(copy);
-                  }}
-                  className="form-input flex-1"
-                  placeholder="Value"
-                />
-              </div>
-            ))}
+            <div className="list-container max-h-40">
+              {headers.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  No custom headers added
+                </p>
+              ) : (
+                headers.map((h, idx) => (
+                  <div key={idx} className="flex gap-2 mb-2 last:mb-0">
+                    <input
+                      value={h.key}
+                      onChange={(e) => {
+                        const copy = [...headers];
+                        copy[idx].key = e.target.value;
+                        setHeaders(copy);
+                      }}
+                      className="form-input w-1/3 flex-none"
+                      placeholder="Key"
+                    />
+                    <input
+                      value={h.value}
+                      onChange={(e) => {
+                        const copy = [...headers];
+                        copy[idx].value = e.target.value;
+                        setHeaders(copy);
+                      }}
+                      className="form-input flex-1"
+                      placeholder="Value"
+                    />
+                    <button
+                      onClick={() => {
+                        const copy = headers.filter((_, i) => i !== idx);
+                        setHeaders(copy);
+                      }}
+                      className="btn-danger p-2 text-sm flex-none"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              )}
+              <button
+                onClick={() => setHeaders([...headers, { key: '', value: '' }])}
+                className="btn-secondary mt-2 text-sm p-2"
+              >
+                + Add Header
+              </button>
+            </div>
           </div>
 
-          <div className="mb-3">
+          <div>
             <p className="form-label mb-2">Body (JSON)</p>
             <textarea
               value={body}
@@ -139,40 +194,54 @@ export default function TemplateTestView({ template }) {
               placeholder="{}"
             />
           </div>
+        </div>
+      </div>
 
-          <div className="flex gap-2 justify-end">
-            <button onClick={runTest} className="btn-primary">
-              Run Test
-            </button>
+      {/* Console & Stats Section */}
+      <div className="section-grid-cols-2">
+        {/* Console */}
+        <div className="section-card flex flex-col">
+          <p className="form-label mb-4">Console Output</p>
+          <div
+            className="console-panel"
+            ref={consoleRef}
+          >
+            {consoleLines.length === 0 ? (
+              <p className="text-center py-8 text-gray-500">
+                Run a test to see console output
+              </p>
+            ) : (
+              consoleLines.map((ln, i) => (
+                <div
+                  key={i}
+                  className={ln.type === 'req' ? 'console-line-req' : 'console-line-res'}
+                >
+                  <span>{ln.type === 'req' ? '→ ' : '← '}</span>
+                  <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{ln.text}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        <div className='flex flex-row lg:flex-row gap-4 flex-1'>
-          <div className="flex flex-col bg-white shadow rounded-lg p-4 flex-1">
-            <p className="form-label mb-3">Console</p>
-            <div
-              className="console-root border rounded p-3 h-full overflow-y-auto bg-gray-900 text-gray-100"
-              ref={consoleRef}
-            >
-              {consoleLines.map((ln, i) => (
-                <div
-                  key={i}
-                  className={`console-line ${ln.type === 'req' ? 'text-blue-400' : 'text-green-400'} font-mono text-xs mb-1`}
-                >
-                  {ln.type === 'req' ? '→ ' : '← '}
-                  {ln.text}
-                </div>
-              ))}
-            </div>
-          </div>
-
+        {/* Stats & Quota */}
+        <div className="flex-col-gap">
           {quotaTotal > 0 && (
-            <div className="flex-1">
+            <div className="section-card">
               <QuotaChart rateLimit={rateLimit} quotaUsed={quotaUsed} quotaTotal={quotaTotal} />
             </div>
           )}
         </div>
       </div>
+
+      {/* Test Result Modal */}
+      {showResultModal && (
+        <TestResultModal
+          result={testResult}
+          template={template}
+          onClose={() => setShowResultModal(false)}
+        />
+      )}
     </div>
   );
 }

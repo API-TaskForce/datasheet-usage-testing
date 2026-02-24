@@ -96,4 +96,36 @@ export async function proxyRequest(url, method = 'GET', headers = {}, body = nul
   }
 }
 
+// =============== API TESTS (Rate Limiting) ===============
+
+/**
+ * Execute a rate limit test for an API
+ * @param {object} testConfig - Test configuration
+ * @returns {Promise<object>} Job data with { jobId }
+ */
+export async function testApi(testConfig) {
+  try {
+    const response = await instance.post('/tests/run', testConfig);
+    return response.data;
+  } catch (err) {
+    console.error('[testApi] Error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get test results by job ID
+ * @param {string} jobId - Job ID
+ * @returns {Promise<object>} Job data with { id, status, results, summary }
+ */
+export async function getTestResults(jobId) {
+  try {
+    const response = await instance.get(`/tests/${jobId}`);
+    return response.data;
+  } catch (err) {
+    console.error('[getTestResults] Error:', err);
+    throw err;
+  }
+}
+
 export default instance;

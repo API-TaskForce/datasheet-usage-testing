@@ -1,11 +1,13 @@
 import React from 'react'
 import TemplatesPage from './views/TemplatesPage.jsx'
-import './App.css'
+import { ToastProvider } from './stores/toastStore.jsx'
 
 export default function App(){
   return (
-    <div>
-      <TemplatesPage />
-    </div>
+    <ToastProvider>
+      <div>
+        <TemplatesPage />
+      </div>
+    </ToastProvider>
   )
 }

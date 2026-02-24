@@ -27,14 +27,16 @@ const templateSchema = Joi.object({
     }),
   
   authMethod: Joi.string()
-    .required()
-    .valid('API_TOKEN', 'BASIC_AUTH', 'BEARER', 'OAUTH2')
+    .optional()
+    .allow('')
+    .valid('', 'API_TOKEN', 'BASIC_AUTH', 'BEARER', 'OAUTH2')
     .messages({
       'any.only': 'Auth method must be one of: API_TOKEN, BASIC_AUTH, BEARER, OAUTH2'
     }),
   
   authCredential: Joi.string()
-    .required()
+    .optional()
+    .allow('')
     .trim()
     .messages({
       'string.empty': 'Auth credential is required'

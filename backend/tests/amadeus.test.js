@@ -94,6 +94,7 @@ describe("Amadeus - Rate Limit Testing", () => {
     /**
      * Amadeus permite 10 requests por segundo en la mayoría de endpoints
      * Monitoreamos los headers de rate limit
+     * Todas las peticiones se lanzan en paralelo para detectar rate limits
      */
     const payload = {
       endpoint: `${FLIGHT_ENDPOINT}?origin=MAD&destination=BCN&departureDate=2025-03-20&adults=1`,
@@ -106,7 +107,6 @@ describe("Amadeus - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 5,
-      intervalMs: 200,
     };
 
     const {
@@ -142,6 +142,7 @@ describe("Amadeus - Rate Limit Testing", () => {
     /**
      * Probamos con múltiples clientes simultáneamente
      * para ver cómo Amadeus maneja la limitación bajo carga
+     * Todas las peticiones se lanzan en paralelo sin intervalos
      */
     const payload = {
       endpoint: `${FLIGHT_ENDPOINT}?origin=MAD&destination=BCN&departureDate=2025-03-25&adults=1`,
@@ -154,8 +155,6 @@ describe("Amadeus - Rate Limit Testing", () => {
       },
       clients: 5,
       totalRequests: 20,
-      burstSize: 5,
-      intervalMs: 100,
     };
 
     const {

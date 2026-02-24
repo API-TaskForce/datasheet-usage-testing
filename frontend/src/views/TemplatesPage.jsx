@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import TemplateList from '../components/TemplateList.jsx';
 import TemplateForm from '../components/TemplateForm.jsx';
 import TemplateTestView from '../components/TemplateTestView.jsx';
-import '../style.css';
 
-import { getTemplates } from '../services/apiTemplateService.js';
+import { getTemplates, deleteTemplate } from '../services/apiTemplateService.js';
+import { useToast } from '../stores/toastStore.jsx';
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState([]);
@@ -14,6 +14,8 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState(null);
   const [showTest, setShowTest] = useState(false);
   const [testTemplate, setTestTemplate] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const toast = useToast();
 
   const load = async () => {
     setLoading(true);
@@ -24,6 +26,23 @@ export default function TemplatesPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (template) => {
+    if (!window.confirm(`Are you sure you want to delete "${template.name}"?`)) {
+      return;
+    }
+
+    setDeleting(template.id);
+    try {
+      await deleteTemplate(template.id);
+      setTemplates(templates.filter(t => t.id !== template.id));
+      toast.success(`Template "${template.name}" deleted successfully`);
+    } catch (err) {
+      toast.error(`Failed to delete template: ${err.message}`);
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -58,6 +77,7 @@ export default function TemplatesPage() {
             setTestTemplate(t);
             setShowTest(true);
           }}
+          onDelete={handleDelete}
           onRefresh={load}
         />
 
@@ -82,20 +102,14 @@ export default function TemplatesPage() {
           <div className="modal-overlay">
             <div className="modal-panel">
               <div
-                className="p-4 flex items-center justify-between"
-                style={{ borderBottom: '1px solid var(--color-border)' }}
+                className="p-4 flex items-center justify-between border-b"
+                style={{ borderColor: 'var(--color-border)' }}
               >
                 <h3 className="text-lg font-semibold">Testing: {testTemplate.name}</h3>
                 <button
                   onClick={() => setShowTest(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '1.5rem',
-                    cursor: 'pointer',
-                    color: 'var(--color-text)',
-                    padding: 0,
-                  }}
+                  className="text-xl font-normal bg-none border-0 p-0 cursor-pointer" 
+                  style={{ color: 'var(--color-text)' }}
                 >
                   ×
                 </button>

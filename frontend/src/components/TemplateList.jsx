@@ -2,13 +2,13 @@ import React from 'react';
 import BaseCard from './BaseCard.jsx';
 import BaseButton from './BaseButton.jsx';
 import AuthBadge from './AuthBadge.jsx';
-
-export default function TemplateList({ templates = [], onEdit, onCreate, onTest, onRefresh }) {
+import { Pencil, PencilLine, TestTube2, Trash2 } from 'lucide-react';
+export default function TemplateList({ templates = [], onEdit, onCreate, onTest, onDelete, onRefresh }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">API Templates</h2>
-        <BaseButton variant="primary" onClick={onCreate}>
+        <BaseButton variant="primary" onClick={onCreate} size='lg'>
           + New Template
         </BaseButton>
       </div>
@@ -32,14 +32,17 @@ export default function TemplateList({ templates = [], onEdit, onCreate, onTest,
               
             </div>
             <div
-              className="flex gap-2 mt-4 pt-4"
-              style={{ borderTop: '1px solid var(--color-border)' }}
+              className="flex gap-2 mt-4 pt-4 border-t"
+              style={{ borderColor: 'var(--color-border)' }}
             >
               <BaseButton size="sm" variant="primary" onClick={() => onEdit(t)}>
-                Edit
+                <Pencil size={16} /> Edit
               </BaseButton>
               <BaseButton size="sm" variant="secondary" onClick={() => onTest(t)}>
-                Test
+                <TestTube2 size={16} /> Test
+              </BaseButton>
+              <BaseButton size="sm" variant="danger" onClick={() => onDelete(t)}>
+                <Trash2 size={16} />
               </BaseButton>
             </div>
           </BaseCard>

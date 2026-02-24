@@ -12,8 +12,6 @@ describe("Simpsons API - Stress & Rate Limit Test", () => {
       request: { method: "GET" },
       clients: 5, // 5 clientes paralelos
       totalRequests: 10, // 10 peticiones en total
-      burstSize: 2, // Cada cliente lanza de 2 en 2
-      intervalMs: 500, // Pequeño respiro entre ráfagas
     };
 
     const {
@@ -28,15 +26,13 @@ describe("Simpsons API - Stress & Rate Limit Test", () => {
   it("CASE 2: Aggressive Stress (Buscando el 429)", async () => {
     /**
      * Glitch (donde se aloja esta API) suele tener límites por IP.
-     * Lanzamos ráfagas grandes sin intervalo.
+     * Lanzamos múltiples peticiones en paralelo sin intervalos.
      */
     const payload = {
       endpoint: SIMPSONS_API,
       request: { method: "GET" },
       clients: 1,
       totalRequests: 25,
-      burstSize: 25, // Intentamos enviar 25 de golpe
-      intervalMs: 0,
     };
 
     const {

@@ -3,6 +3,7 @@ import BaseCard from './BaseCard.jsx';
 import BaseButton from './BaseButton.jsx';
 import AuthBadge from './AuthBadge.jsx';
 import { createTemplate, updateTemplate } from '../services/apiTemplateService.js';
+import { useToast } from '../stores/toastStore.jsx';
 
 export default function TemplateForm({ template = null, onDone, onCancel }) {
   const [form, setForm] = useState({
@@ -13,11 +14,16 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
     datasheet: '',
     status: 'active',
   });
+  const [requiresAuth, setRequiresAuth] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const toast = useToast();
 
   useEffect(() => {
-    if (template) setForm({ ...template });
+    if (template) {
+      setForm({ ...template });
+      setRequiresAuth(!!(template.authMethod && template.authMethod.trim()));
+    }
   }, [template]);
 
   const handleChange = (k, v) => setForm((s) => ({ ...s, [k]: v }));
@@ -28,12 +34,15 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
     try {
       if (template) {
         await updateTemplate(template.id, form);
+        toast.success(`Template "${form.name}" updated successfully`);
       } else {
         await createTemplate(form);
+        toast.success(`Template "${form.name}" created successfully`);
       }
       onDone && onDone();
     } catch (err) {
       setError(err.message);
+      toast.error(`Failed to save template: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -62,34 +71,6 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
             </div>
 
             <div className="form-group">
-              <label className="form-label muted">Auth Method</label>
-              <select
-                value={form.authMethod}
-                onChange={(e) => handleChange('authMethod', e.target.value)}
-                className="form-select"
-              >
-                <option value="">Select...</option>
-                <option value="API_TOKEN">API Token</option>
-                <option value="BASIC_AUTH">Basic</option>
-                <option value="BEARER">Bearer</option>
-                <option value="OAUTH2">OAuth2</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label muted">Auth Credential</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type={form.showCredential ? 'text' : 'password'}
-                  value={form.authCredential}
-                  onChange={(e) => handleChange('authCredential', e.target.value)}
-                  className="form-input flex-1"
-                />
-                <AuthBadge authCredential={form.authCredential} compact={true} />
-              </div>
-            </div>
-
-            <div className="form-group">
               <label className="form-label muted">API URL</label>
               <input
                 type="url"
@@ -99,6 +80,53 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
               />
             </div>
           </div>
+
+          <div className="form-group">
+            <label className="form-label muted flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={requiresAuth}
+                onChange={(e) => {
+                  setRequiresAuth(e.target.checked);
+                  if (!e.target.checked) {
+                    handleChange('authMethod', '');
+                    handleChange('authCredential', '');
+                  }
+                }}
+                className="w-4 h-4"
+              />
+              This API requires authentication
+            </label>
+          </div>
+
+          {requiresAuth && (
+            <div className="flex flex-row md:flex-row gap-4 bg-gray-50 p-4 rounded border border-gray-200">
+              <div className="form-group">
+                <label className="form-label muted">Auth Method</label>
+                <select
+                  value={form.authMethod}
+                  onChange={(e) => handleChange('authMethod', e.target.value)}
+                  className="form-select"
+                >
+                  <option value="">Select...</option>
+                  <option value="API_TOKEN">API Token</option>
+                  <option value="BASIC_AUTH">Basic</option>
+                  <option value="BEARER">Bearer</option>
+                  <option value="OAUTH2">OAuth2</option>
+                </select>
+                <label className="form-label muted">Auth Credential</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type={form.showCredential ? 'text' : 'password'}
+                    value={form.authCredential}
+                    onChange={(e) => handleChange('authCredential', e.target.value)}
+                    className="form-input flex-1"
+                  />
+                  <AuthBadge authCredential={form.authCredential} compact={true} />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="form-group ">
             <label className="form-label muted">Datasheet (YAML)</label>

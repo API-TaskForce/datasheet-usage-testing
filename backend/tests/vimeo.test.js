@@ -45,6 +45,7 @@ describe("Vimeo - Rate Limit Testing", () => {
      * - Free: 100 requests por hora
      * - Paid: hasta 1000 requests por hora dependiendo del plan
      * Los headers X-RateLimit-* indican el estado
+     * Todas las peticiones se lanzan en paralelo
      */
     const payload = {
       endpoint: `${VIDEOS_ENDPOINT}?per_page=5`,
@@ -57,7 +58,6 @@ describe("Vimeo - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 15,
-      intervalMs: 250,
     };
 
     const {
@@ -95,8 +95,9 @@ describe("Vimeo - Rate Limit Testing", () => {
 
   it("CASE 3: Burst Request - Check Rate Limiting Behavior", async () => {
     /**
-     * Enviamos múltiples solicitudes rápidas para ver
+     * Enviamos múltiples solicitudes en paralelo para ver
      * cómo Vimeo maneja la limitación de velocidad
+     * Todas las peticiones se lanzan simultáneamente
      */
     const payload = {
       endpoint: `${VIDEOS_ENDPOINT}?per_page=10&sort=date&direction=desc`,
@@ -109,8 +110,6 @@ describe("Vimeo - Rate Limit Testing", () => {
       },
       clients: 4,
       totalRequests: 25,
-      burstSize: 8,
-      intervalMs: 100,
     };
 
     const {
@@ -137,6 +136,7 @@ describe("Vimeo - Rate Limit Testing", () => {
     /**
      * Verificamos si diferentes endpoints comparten el mismo límite
      * o tienen límites independientes
+     * Todas las peticiones se lanzan en paralelo
      */
     const userPayload = {
       endpoint: USER_ENDPOINT,
@@ -149,7 +149,6 @@ describe("Vimeo - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 8,
-      intervalMs: 300,
     };
 
     const {
@@ -175,6 +174,7 @@ describe("Vimeo - Rate Limit Testing", () => {
   it("CASE 5: Rate Limit Reset Window", async () => {
     /**
      * Monitoreamos el window de reset del rate limit
+     * Todas las peticiones se lanzan en paralelo
      */
     const payload = {
       endpoint: USER_ENDPOINT,
@@ -187,7 +187,6 @@ describe("Vimeo - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 3,
-      intervalMs: 1000,
     };
 
     const {

@@ -46,6 +46,7 @@ describe("Azure Translator - Rate Limit Testing", () => {
     /**
      * Azure Translator permite 100 peticiones por segundo en el plan S1
      * Los headers X-RateLimit-* indican el estado del límite
+     * Todas las peticiones se lanzan en paralelo para detectar rate limits
      */
     const payload = {
       endpoint: TRANSLATE_ENDPOINT,
@@ -60,7 +61,6 @@ describe("Azure Translator - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 10,
-      intervalMs: 100,
     };
 
     const {
@@ -91,8 +91,9 @@ describe("Azure Translator - Rate Limit Testing", () => {
 
   it("CASE 3: Burst Request - Check Rate Limiting Behavior", async () => {
     /**
-     * Enviamos múltiples solicitudes simultáneamente sin intervalos
+     * Enviamos múltiples solicitudes simultáneamente
      * para ver cómo Azure Translator maneja la limitación de velocidad
+     * Todas las peticiones se lanzan en paralelo sin intervalos
      */
     const payload = {
       endpoint: TRANSLATE_ENDPOINT,
@@ -107,8 +108,6 @@ describe("Azure Translator - Rate Limit Testing", () => {
       },
       clients: 5,
       totalRequests: 30,
-      burstSize: 10,
-      intervalMs: 0,
     };
 
     const {
@@ -134,6 +133,7 @@ describe("Azure Translator - Rate Limit Testing", () => {
   it("CASE 4: Different Endpoints Rate Limit", async () => {
     /**
      * Probamos si diferentes endpoints tienen límites independientes
+     * Todas las peticiones se lanzan en paralelo
      */
     const detectPayload = {
       endpoint: DETECT_ENDPOINT,
@@ -148,7 +148,6 @@ describe("Azure Translator - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 5,
-      intervalMs: 200,
     };
 
     const {

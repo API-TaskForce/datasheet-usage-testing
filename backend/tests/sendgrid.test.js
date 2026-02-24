@@ -51,7 +51,7 @@ describe("RapidAPI - SendGrid Rate Limit Testing", () => {
   it("CASE 2: RapidAPI Quota Stress (Buscando el límite del Proxy)", async () => {
     /**
      * RapidAPI añade sus propios headers de control.
-     * Vamos a enviar 10 peticiones rápidas para ver si el proxy nos frena.
+     * Enviamos múltiples peticiones en paralelo para ver si el proxy nos frena.
      */
     const payload = {
       endpoint: ENDPOINT,
@@ -67,8 +67,6 @@ describe("RapidAPI - SendGrid Rate Limit Testing", () => {
       },
       clients: 2,
       totalRequests: 10,
-      burstSize: 5,
-      intervalMs: 0,
     };
 
     const {

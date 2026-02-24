@@ -43,6 +43,7 @@ describe("BitBucket - Rate Limit Testing", () => {
     /**
      * BitBucket permite 60 peticiones por minuto para usuarios autenticados
      * Los headers X-RateLimit-* indican el estado del límite
+     * Todas las peticiones se lanzan en paralelo para detectar rate limits
      */
     const payload = {
       endpoint: REPOS_ENDPOINT,
@@ -55,7 +56,6 @@ describe("BitBucket - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 10,
-      intervalMs: 600, // ~60 segundos para 10 requests
     };
 
     const {
@@ -85,8 +85,9 @@ describe("BitBucket - Rate Limit Testing", () => {
 
   it("CASE 3: Burst Request - Check Rate Limiting Behavior", async () => {
     /**
-     * Enviamos múltiples solicitudes sin intervalos para
+     * Enviamos múltiples solicitudes en paralelo para
      * ver cómo BitBucket maneja la limitación de velocidad
+     * Todas las peticiones se lanzan simultáneamente sin intervalos
      */
     const payload = {
       endpoint: REPOS_ENDPOINT,
@@ -99,8 +100,6 @@ describe("BitBucket - Rate Limit Testing", () => {
       },
       clients: 4,
       totalRequests: 30,
-      burstSize: 10,
-      intervalMs: 0,
     };
 
     const {

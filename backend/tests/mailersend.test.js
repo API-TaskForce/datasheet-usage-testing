@@ -56,6 +56,7 @@ describe("Mailersend - Rate Limit Testing", () => {
     /**
      * Mailersend típicamente permite 1000 requests por día
      * Monitoreamos los headers X-RateLimit-* para ver el límite
+     * Todas las peticiones se lanzan en paralelo
      */
     const payload = {
       endpoint: ENDPOINT,
@@ -75,7 +76,6 @@ describe("Mailersend - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 5,
-      intervalMs: 500,
     };
 
     const {
@@ -108,6 +108,7 @@ describe("Mailersend - Rate Limit Testing", () => {
     /**
      * Enviamos múltiples solicitudes sin intervalos para
      * ver cómo Mailersend maneja la limitación de velocidad
+     * Todas las peticiones se lanzan en paralelo
      */
     const payload = {
       endpoint: ENDPOINT,
@@ -127,8 +128,6 @@ describe("Mailersend - Rate Limit Testing", () => {
       },
       clients: 3,
       totalRequests: 15,
-      burstSize: 5,
-      intervalMs: 0,
     };
 
     const {

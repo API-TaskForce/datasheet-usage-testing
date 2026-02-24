@@ -1,7 +1,61 @@
 import { request as httpRequest } from "./lib/httpClient.js";
 import { createJob, updateJob, getJob } from "./db.js";
-import { makeId, sleep } from "./lib/utils.js";
+import { makeId } from "./lib/utils.js";
 import { error as logError, success as logSuccess } from "./lib/log.js";
+
+// Limite para el tamaño del body capturado (100 KB)
+const MAX_BODY_SIZE = 100 * 1024;
+
+// Serializar body de forma segura
+function serializeBody(body) {
+  if (!body) return null;
+
+  try {
+    // Si es string, devolver tal cual (truncado si es muy grande)
+    if (typeof body === "string") {
+      return body.length > MAX_BODY_SIZE
+        ? body.substring(0, MAX_BODY_SIZE) + "\n... (truncated)"
+        : body;
+    }
+
+    // Si es objeto, convertir a JSON
+    if (typeof body === "object") {
+      const serialized = JSON.stringify(body);
+      return serialized.length > MAX_BODY_SIZE
+        ? serialized.substring(0, MAX_BODY_SIZE) + "\n... (truncated)"
+        : serialized;
+    }
+
+    // Para otros tipos, intentar string
+    const str = String(body);
+    return str.length > MAX_BODY_SIZE
+      ? str.substring(0, MAX_BODY_SIZE) + "\n... (truncated)"
+      : str;
+  } catch (err) {
+    return `[Error serializing body: ${err.message}]`;
+  }
+}
+
+// Extraer headers de forma segura
+function extractHeaders(headers) {
+  if (!headers) return {};
+
+  try {
+    // Si es un método (AxiosHeaders)
+    if (typeof headers.toJSON === "function") {
+      return headers.toJSON();
+    }
+
+    // Si es un objeto plano
+    if (headers && typeof headers === "object") {
+      return { ...headers };
+    }
+
+    return {};
+  } catch (err) {
+    return { error: `Failed to extract headers: ${err.message}` };
+  }
+}
 
 export async function startTest(config) {
   const id = makeId();
@@ -42,76 +96,96 @@ function updateMetrics(metrics, elapsed, status) {
 }
 
 // Ejecuta la lógica de un worker individual (un "cliente")
+// Todas las peticiones se lanzan en paralelo sin intervalos
 async function executeWorker({ id, quota, config, state }) {
-  const { endpoint, request, timeoutMs, intervalMs, burstSize = 1 } = config;
-  let sentInWorker = 0;
+  const { endpoint, request, timeoutMs } = config;
+  const requestMethod = request.method || "GET";
+  const requestHeaders = request.headers || {};
+  const requestBody = request.body;
 
-  while (sentInWorker < quota) {
-    const remaining = quota - sentInWorker;
-    const currentBurst = Math.min(burstSize, remaining);
+  const requestPromises = Array.from({ length: quota }).map(async () => {
+    console.log(`Worker lanzando peticion ${state.globalSent + 1}`);
+    const start = Date.now();
+    const attempt = ++state.globalSent; // Contador global compartido
+    let response;
+    let error = null;
 
-    const burstPromises = Array.from({ length: currentBurst }).map(async () => {
-      console.log(`Worker lanzando peticion ${state.globalSent + 1}`);
-      const start = Date.now();
-      const attempt = ++state.globalSent; // Contador global compartido
-      let response;
-
-      try {
-        response = await httpRequest({
-          url: endpoint,
-          method: request.method || "GET",
-          headers: request.headers || {},
-          data: request.body,
-          timeout: timeoutMs,
-          validateStatus: () => true,
-        });
-      } catch (err) {
-        response = err.response; // Axios guarda la respuesta fallida aquí
-      }
-
-      const elapsed = Date.now() - start;
-      const statusCode = response ? parseInt(response.status, 10) : 0;
-
-      // Extracción ultra-segura
-      let retryAfter = null;
-      if (response && response.headers) {
-        if (typeof response.headers.get === "function") {
-          // Caso AxiosHeaders
-          retryAfter = response.headers.get("retry-after");
-        } else {
-          // Caso objeto plano (fallback)
-          retryAfter =
-            response.headers["retry-after"] || response.headers["Retry-After"];
-        }
-      }
-
-      // 1. Guardamos en el array compartido
-      state.results.push({
-        seq: attempt,
-        status:
-          statusCode === 429
-            ? "rate_limited"
-            : statusCode >= 200 && statusCode < 300
-              ? "ok"
-              : "error",
-        statusCode,
-        durationMs: elapsed,
-        timestamp: new Date().toISOString(),
-        retryAfter: retryAfter ? String(retryAfter) : null,
+    try {
+      response = await httpRequest({
+        url: endpoint,
+        method: requestMethod,
+        headers: requestHeaders,
+        data: requestBody,
+        timeout: timeoutMs,
+        validateStatus: () => true,
       });
-
-      updateMetrics(state.metrics, elapsed, statusCode);
-    });
-
-    // 3. Ejecutar ráfaga en paralelo
-    await Promise.allSettled(burstPromises);
-    sentInWorker += currentBurst;
-
-    // 5. Delay entre ráfagas
-    if (intervalMs > 0 && sentInWorker < quota) {
-      await sleep(intervalMs);
+    } catch (err) {
+      error = err;
+      response = err.response; // Axios guarda la respuesta fallida aquí
     }
-  }
+
+    const elapsed = Date.now() - start;
+    const statusCode = response ? parseInt(response.status, 10) : 0;
+
+    // Extracción de retry-after
+    let retryAfter = null;
+    if (response && response.headers) {
+      if (typeof response.headers.get === "function") {
+        // Caso AxiosHeaders
+        retryAfter = response.headers.get("retry-after");
+      } else {
+        // Caso objeto plano (fallback)
+        retryAfter =
+          response.headers["retry-after"] || response.headers["Retry-After"];
+      }
+    }
+
+    // Construir resultado con trazas completas
+    const result = {
+      seq: attempt,
+      timestamp: new Date().toISOString(),
+      status:
+        statusCode === 429
+          ? "rate_limited"
+          : statusCode >= 200 && statusCode < 300
+            ? "ok"
+            : "error",
+      statusCode,
+      durationMs: elapsed,
+      retryAfter: retryAfter ? String(retryAfter) : null,
+      
+      // Trazas de la solicitud
+      request: {
+        url: endpoint,
+        method: requestMethod,
+        headers: requestHeaders ? { ...requestHeaders } : {},
+        body: serializeBody(requestBody),
+      },
+      
+      // Trazas de la respuesta
+      response: response ? {
+        status: response.status,
+        statusText: response.statusText || "",
+        headers: extractHeaders(response.headers),
+        body: serializeBody(response.data),
+      } : null,
+      
+      // Información de error si aplica
+      error: error ? {
+        message: error.message,
+        code: error.code,
+        errorType: error.name,
+      } : null,
+    };
+
+    // Guardamos en el array compartido
+    state.results.push(result);
+
+    updateMetrics(state.metrics, elapsed, statusCode);
+  });
+
+  // Lanzar todas las peticiones en paralelo sin esperas
+  await Promise.allSettled(requestPromises);
 }
 
 export async function runJob(id) {

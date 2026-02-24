@@ -22,8 +22,6 @@ describe("API Limiter Stress & Limits", () => {
       request: { method: "GET" },
       clients: 2,
       totalRequests: 4,
-      burstSize: 2,
-      intervalMs: 100,
     };
 
     const {
@@ -44,8 +42,6 @@ describe("API Limiter Stress & Limits", () => {
       request: { method: "GET", retries: 0 },
       clients: 1,
       totalRequests: 3,
-      burstSize: 3,
-      intervalMs: 0,
     };
 
     const {

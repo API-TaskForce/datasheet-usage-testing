@@ -43,6 +43,7 @@ describe("Spoonacular - Rate Limit Testing", () => {
      * Spoonacular permite 500 puntos por día en plan gratis
      * Diferentes endpoints consumen diferentes cantidades de puntos
      * Monitoreamos los headers X-API-Quota-* para ver el estado
+     * Todas las peticiones se lanzan en paralelo
      */
     const payload = {
       endpoint: `${RANDOM_ENDPOINT}?apiKey=${SPOONACULAR_API_KEY}&number=3`,
@@ -54,7 +55,6 @@ describe("Spoonacular - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 8,
-      intervalMs: 500,
     };
 
     const {
@@ -85,7 +85,7 @@ describe("Spoonacular - Rate Limit Testing", () => {
   it("CASE 3: Burst Request - Check Rate Limiting Behavior", async () => {
     /**
      * Spoonacular implementa limitación por membresía y puntos
-     * Enviamos múltiples solicitudes para ver cómo maneja la carga
+     * Enviamos múltiples solicitudes en paralelo para ver cómo maneja la carga
      */
     const payload = {
       endpoint: `${SEARCH_ENDPOINT}?apiKey=${SPOONACULAR_API_KEY}&query=chicken&number=1`,
@@ -97,8 +97,6 @@ describe("Spoonacular - Rate Limit Testing", () => {
       },
       clients: 3,
       totalRequests: 12,
-      burstSize: 4,
-      intervalMs: 200,
     };
 
     const {
@@ -125,6 +123,7 @@ describe("Spoonacular - Rate Limit Testing", () => {
     /**
      * Verificamos cómo se consumen los puntos de cuota
      * Diferentes endpoints tienen diferente costo
+     * Todas las peticiones se lanzan en paralelo
      */
     const payload = {
       endpoint: `${SEARCH_ENDPOINT}?apiKey=${SPOONACULAR_API_KEY}&query=soup&number=1`,
@@ -136,7 +135,6 @@ describe("Spoonacular - Rate Limit Testing", () => {
       },
       clients: 1,
       totalRequests: 5,
-      intervalMs: 1000,
     };
 
     const {
