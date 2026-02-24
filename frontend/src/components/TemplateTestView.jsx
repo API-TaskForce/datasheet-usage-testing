@@ -2,12 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import QuotaChart from './QuotaChart.jsx';
 import TestResultModal from './TestResultModal.jsx';
 import { proxyRequest } from '../services/apiTemplateService.js';
+import BaseButton from './BaseButton.jsx';
+import { Undo, Undo2, Plus, Key, Zap, Play, Square, X } from 'lucide-react';
+import BaseCard from './BaseCard.jsx';
 
 export default function TemplateTestView({ template }) {
   const [method, setMethod] = useState('GET');
   const [path, setPath] = useState('/');
+  const [queryParams, setQueryParams] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [body, setBody] = useState('');
+  const [bodyValidationError, setBodyValidationError] = useState(null);
   const [consoleLines, setConsoleLines] = useState([]);
   const [rateLimit, setRateLimit] = useState({});
   const [quotaUsed, setQuotaUsed] = useState(0);
@@ -33,11 +38,46 @@ export default function TemplateTestView({ template }) {
     if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
   }, [consoleLines]);
 
-  const runTest = async () => {
+  // Validate JSON body
+  const validateBody = (bodyText) => {
+    if (!bodyText || bodyText.trim() === '') {
+      setBodyValidationError(null);
+      return true;
+    }
+    try {
+      JSON.parse(bodyText);
+      setBodyValidationError(null);
+      return true;
+    } catch (err) {
+      setBodyValidationError(`Invalid JSON: ${err.message}`);
+      return false;
+    }
+  };
+
+  // Build full URL with query params
+  const buildFullUrl = () => {
     const base = template.apiUri || '';
     const p = path.startsWith('/') ? path : '/' + path;
-    const url = base.replace(/\/$/, '') + p;
+    let url = base.replace(/\/$/, '') + p;
 
+    const validParams = queryParams.filter((q) => q.key && q.value);
+    if (validParams.length > 0) {
+      const qs = validParams
+        .map((q) => `${encodeURIComponent(q.key)}=${encodeURIComponent(q.value)}`)
+        .join('&');
+      url += '?' + qs;
+    }
+
+    return url;
+  };
+
+  const runTest = async () => {
+    // Validate body if present
+    if (body && !validateBody(body)) {
+      return;
+    }
+
+    const url = buildFullUrl();
     setIsLoading(true);
     setConsoleLines((l) => [...l, { type: 'req', text: `${method} ${url}` }]);
 
@@ -48,7 +88,16 @@ export default function TemplateTestView({ template }) {
 
     const start = Date.now();
     try {
-      const proxyRes = await proxyRequest(url, method, hdrs, body || null);
+      let bodyToSend = null;
+      if (body && body.trim()) {
+        try {
+          bodyToSend = JSON.parse(body);
+        } catch (e) {
+          bodyToSend = body;
+        }
+      }
+
+      const proxyRes = await proxyRequest(url, method, hdrs, bodyToSend);
       const duration = Date.now() - start;
 
       // Extract response data
@@ -62,6 +111,10 @@ export default function TemplateTestView({ template }) {
         data,
         duration,
         headers: resHeaders || {},
+        url,
+        method,
+        requestHeaders: hdrs,
+        requestBody: body,
       });
       setShowResultModal(true);
 
@@ -98,14 +151,31 @@ export default function TemplateTestView({ template }) {
     }
   };
 
-  return (
-    <div className="w-full flex flex-row gap-6 p-6 container-max-width">
-      {/* Request Section */}
-      <div className="section-grid w-full">
-        <div className="section-card ">
-          <p className="form-label mb-4">Request</p>
+  const clearConsole = () => {
+    setConsoleLines([]);
+  };
 
-          <div className="form-row">
+  return (
+    <BaseCard>
+      <div className="flex-row items-center justify-between">
+        <h2 className="text-2xl font-semibold text-text">Test API</h2>
+        <BaseButton variant="secondary" size="icon" onClick={clearConsole}>
+          <X size={16} />
+        </BaseButton>
+      </div>
+      <div className="flex flex-col md:flex-row gap-6">
+        <div className="section-card">
+          {/* Header */}
+          <div className="border-b border-gray-200 pb-4">
+            <h2 className="text-2xl font-semibold text-text">Test API</h2>
+          </div>
+
+          <div className="py-4">
+            <p className="text-sm text-gray-600">Configure your API Request.</p>
+          </div>
+
+          {/* Method and Path */}
+          <div className="form-row mb-4">
             <select
               value={method}
               onChange={(e) => setMethod(e.target.value)}
@@ -116,30 +186,89 @@ export default function TemplateTestView({ template }) {
               <option>PUT</option>
               <option>DELETE</option>
               <option>PATCH</option>
+              <option>HEAD</option>
             </select>
             <input
               value={path}
               onChange={(e) => setPath(e.target.value)}
-              className="form-input flex-1"
-              placeholder="/"
+              className="form-input"
+              placeholder="/endpoint"
             />
-            <button
-              onClick={runTest}
-              className="btn-primary"
-              disabled={isLoading}
-              style={{ opacity: isLoading ? 0.6 : 1, flex: 'none' }}
-            >
-              {isLoading ? 'Testing...' : 'Run Test'}
-            </button>
+            <BaseButton variant="primary" size="lg" disabled={isLoading} onClick={runTest}>
+              {isLoading ? <Square size={16} /> : <Play size={16} />}
+            </BaseButton>
           </div>
 
+          {/* Query Parameters */}
           <div className="mb-4">
-            <p className="form-label mb-2">Headers</p>
-            <div className="list-container max-h-40">
+            <div className="form-row p-2 flex items-center gap-2 justify-between">
+              <p className="form-label mb-0 flex items-center gap-2">Query Parameters</p>
+              <BaseButton
+                variant="secondary"
+                size="sm"
+                onClick={() => setQueryParams([...queryParams, { key: '', value: '' }])}
+              >
+                + Add Parameter
+              </BaseButton>
+            </div>
+
+            {queryParams.length > 0 && (
+              <div className="list-container max-h-40 p-4">
+                {queryParams.map((q, idx) => (
+                  <div key={idx} className="flex gap-2 mb-2 last:mb-0">
+                    <input
+                      value={q.key}
+                      onChange={(e) => {
+                        const copy = [...queryParams];
+                        copy[idx].key = e.target.value;
+                        setQueryParams(copy);
+                      }}
+                      className="form-input w-auto flex-none"
+                      placeholder="Key"
+                    />
+                    <input
+                      value={q.value}
+                      onChange={(e) => {
+                        const copy = [...queryParams];
+                        copy[idx].value = e.target.value;
+                        setQueryParams(copy);
+                      }}
+                      className="form-input flex-1"
+                      placeholder="Value"
+                    />
+                    <BaseButton
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        const copy = [...queryParams];
+                        copy.splice(idx, 1);
+                        setQueryParams(copy);
+                      }}
+                    >
+                      <Undo size={16} />
+                    </BaseButton>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Headers */}
+          <div className="mb-4">
+            <div className="form-row p-2 flex items-center gap-2 justify-between">
+              <p className="form-label mb-0 flex items-center gap-2">Headers</p>
+              <BaseButton
+                variant="secondary"
+                size="sm"
+                onClick={() => setHeaders([...headers, { key: '', value: '' }])}
+              >
+                + Add Header
+              </BaseButton>
+            </div>
+
+            <div className="list-container max-h-40 p-4">
               {headers.length === 0 ? (
-                <p className="text-xs text-gray-500">
-                  No custom headers added
-                </p>
+                <p className="text-xs text-gray-500">No custom headers added</p>
               ) : (
                 headers.map((h, idx) => (
                   <div key={idx} className="flex gap-2 mb-2 last:mb-0">
@@ -150,7 +279,7 @@ export default function TemplateTestView({ template }) {
                         copy[idx].key = e.target.value;
                         setHeaders(copy);
                       }}
-                      className="form-input w-1/3 flex-none"
+                      className="form-input w-auto flex-none"
                       placeholder="Key"
                     />
                     <input
@@ -163,85 +292,118 @@ export default function TemplateTestView({ template }) {
                       className="form-input flex-1"
                       placeholder="Value"
                     />
-                    <button
+                    <BaseButton
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
-                        const copy = headers.filter((_, i) => i !== idx);
+                        const copy = [...headers];
+                        copy.splice(idx, 1);
                         setHeaders(copy);
                       }}
-                      className="btn-danger p-2 text-sm flex-none"
                     >
-                      ✕
-                    </button>
+                      <Undo size={16} />
+                    </BaseButton>
                   </div>
                 ))
               )}
-              <button
-                onClick={() => setHeaders([...headers, { key: '', value: '' }])}
-                className="btn-secondary mt-2 text-sm p-2"
-              >
-                + Add Header
-              </button>
             </div>
           </div>
 
+          {/* Body */}
           <div>
-            <p className="form-label mb-2">Body (JSON)</p>
+            <div className="form-label p-2 flex items-center justify-between">
+              <p className="form-label mb-0">Body (JSON)</p>
+              {bodyValidationError && (
+                <span className="text-xs text-red-600">{bodyValidationError}</span>
+              )}
+            </div>
             <textarea
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => {
+                setBody(e.target.value);
+                validateBody(e.target.value);
+              }}
               rows={6}
-              className="form-textarea"
+              className={`form-textarea ${bodyValidationError ? 'border-red-500' : ''}`}
               placeholder="{}"
             />
           </div>
         </div>
-      </div>
 
-      {/* Console & Stats Section */}
-      <div className="section-grid-cols-2">
-        {/* Console */}
-        <div className="section-card flex flex-col">
-          <p className="form-label mb-4">Console Output</p>
-          <div
-            className="console-panel"
-            ref={consoleRef}
-          >
-            {consoleLines.length === 0 ? (
-              <p className="text-center py-8 text-gray-500">
-                Run a test to see console output
-              </p>
-            ) : (
-              consoleLines.map((ln, i) => (
-                <div
-                  key={i}
-                  className={ln.type === 'req' ? 'console-line-req' : 'console-line-res'}
-                >
-                  <span>{ln.type === 'req' ? '→ ' : '← '}</span>
-                  <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{ln.text}</span>
-                </div>
-              ))
-            )}
+        {/* Console & Stats Section */}
+        <div className="flex flex-col h-full gap-6">
+          {/* Console */}
+          <div className="section-card flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <p className="form-label">Console Output</p>
+              <button
+                onClick={clearConsole}
+                className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="console-panel flex-1" ref={consoleRef}>
+              {consoleLines.length === 0 ? (
+                <p className="text-center py-8 text-gray-500">Run a test to see console output</p>
+              ) : (
+                consoleLines.map((ln, i) => (
+                  <div
+                    key={i}
+                    className={ln.type === 'req' ? 'console-line-req' : 'console-line-res'}
+                  >
+                    <span>{ln.type === 'req' ? '→ ' : '← '}</span>
+                    <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                      {ln.text}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Stats & Quota */}
-        <div className="flex-col-gap">
-          {quotaTotal > 0 && (
-            <div className="section-card">
-              <QuotaChart rateLimit={rateLimit} quotaUsed={quotaUsed} quotaTotal={quotaTotal} />
+          {/* Stats & Quota */}
+          {testResult && (
+            <div className="flex flex-col gap-4">
+              <div className="section-card">
+                <p className="form-label mb-3">Last Response Summary</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Status:</span>
+                    <span className="font-bold">
+                      {testResult.status} {testResult.statusText}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Duration:</span>
+                    <span className="font-bold">{testResult.duration}ms</span>
+                  </div>
+                  {Object.keys(testResult.headers || {}).length > 0 && (
+                    <div>
+                      <span className="text-gray-600 block mb-1">Response Headers:</span>
+                      <div className="bg-gray-50 p-2 rounded text-xs max-h-24 overflow-auto">
+                        {Object.entries(testResult.headers).map(([key, value]) => (
+                          <div key={key}>
+                            <span className="font-medium">{key}:</span> {String(value).slice(0, 50)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
+        {/* Test Result Modal */}
+        {showResultModal && (
+          <TestResultModal
+            result={testResult}
+            template={template}
+            onClose={() => setShowResultModal(false)}
+          />
+        )}
       </div>
-
-      {/* Test Result Modal */}
-      {showResultModal && (
-        <TestResultModal
-          result={testResult}
-          template={template}
-          onClose={() => setShowResultModal(false)}
-        />
-      )}
-    </div>
+    </BaseCard>
   );
 }

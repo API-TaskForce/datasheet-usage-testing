@@ -165,8 +165,7 @@ export default function TestResultModal({ result, onClose, template }) {
           </div>
           <button
             onClick={onClose}
-            className="text-2xl font-normal cursor-pointer bg-none border-0 p-0" 
-            style={{ color: 'var(--color-text)', cursor: 'pointer' }}
+            className="text-2xl font-normal cursor-pointer bg-none border-0 p-0 text-text" 
           >
             ×
           </button>
@@ -195,8 +194,8 @@ export default function TestResultModal({ result, onClose, template }) {
             <>
               {/* Status Summary */}
               {currentResult && (
-                <div className="grid-cols-3 mb-8">
-                  <div className="stat-card" style={{ borderColor: statusColor, background: statusBgColor }}>
+                <div className="flex flex-col sm:flex-row gap-4 mb-8">
+                  <div className="flex-1 stat-card" style={{ borderColor: statusColor, background: statusBgColor }}>
                     <p className="stat-title" style={{ color: statusColor }}>
                       Status
                     </p>
@@ -208,7 +207,7 @@ export default function TestResultModal({ result, onClose, template }) {
                     </p>
                   </div>
 
-                  <div className="stat-card stat-card.info">
+                  <div className="flex-1 stat-card stat-card.info">
                     <p className="stat-title">
                       Duration
                     </p>
@@ -246,11 +245,11 @@ export default function TestResultModal({ result, onClose, template }) {
                           <span style={{ marginLeft: '0.5rem', color: r.statusCode >= 400 ? '#cb2431' : '#22863a' }}>
                             {r.statusCode}
                           </span>
-                          <span style={{ marginLeft: '0.5rem', color: 'var(--color-text-secondary)' }}>
-                            {r.durationMs}ms
-                          </span>
+                        <span className="text-text-secondary">
+                          {r.durationMs}ms
                         </span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                      </span>
+                      <span className="text-xs text-text-secondary">
                           {new Date(r.timestamp).toLocaleTimeString()}
                         </span>
                       </div>
@@ -268,8 +267,8 @@ export default function TestResultModal({ result, onClose, template }) {
                   <div className="code-block min-h-24">
                     {Object.entries(headers).map(([key, value]) => (
                       <div key={key} className="mb-3 text-sm">
-                        <span style={{ fontWeight: 'bold', color: '#0366d6' }}>{key}:</span>
-                        <span style={{ marginLeft: '0.5rem', color: 'var(--color-text)', wordBreak: 'break-word' }}>
+                        <span className="font-bold text-blue-600">{key}:</span>
+                        <span className="ml-2 text-text break-words">
                           {String(value)}
                         </span>
                       </div>
@@ -291,8 +290,8 @@ export default function TestResultModal({ result, onClose, template }) {
           ) : (
             <>
               {/* Configure Test Form */}
-              <div className="grid grid-cols-2 gap-6 mb-8">
-                <div className="form-group-col">
+              <div className="flex flex-col md:flex-row gap-6 mb-8">
+                <div className="flex-1 form-group-col">
                   <label className="form-label">Number of Clients</label>
                   <input
                     type="number"
@@ -308,7 +307,7 @@ export default function TestResultModal({ result, onClose, template }) {
                   </p>
                 </div>
 
-                <div className="form-group-col">
+                <div className="flex-1 form-group-col">
                   <label className="form-label">Total Requests</label>
                   <input
                     type="number"
@@ -411,25 +410,15 @@ export default function TestResultModal({ result, onClose, template }) {
               {/* Console Output */}
               {isExecuting && (
                 <div>
-                  <p style={{ fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.75rem', color: 'var(--color-text)' }}>
-                    Test Progress
-                  </p>
-                  <div
-                    ref={consoleRef}
-                    style={{
-                      background: '#f6f8fa',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '0.375rem',
-                      padding: '1rem',
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      fontFamily: 'monospace',
-                      fontSize: '0.875rem',
-                      lineHeight: '1.5',
-                    }}
-                  >
-                    {consoleLines.length === 0 ? (
-                      <span style={{ color: 'var(--color-text-secondary)' }}>Waiting for test to start...</span>
+                    <p style={{ fontSize: '0.875rem', fontWeight: 'bold', marginBottom: '0.75rem' }} className="text-text">
+                      Test Progress
+                    </p>
+                    <div
+                      ref={consoleRef}
+                      className="bg-gray-100 border border-gray-200 rounded p-4 max-h-52 overflow-y-auto font-mono text-sm leading-6"
+                    >
+                      {consoleLines.length === 0 ? (
+                        <span className="text-text-secondary">Waiting for test to start...</span>
                     ) : (
                       consoleLines.map((line, idx) => (
                         <div
@@ -448,7 +437,7 @@ export default function TestResultModal({ result, onClose, template }) {
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 justify-end p-6 border-t" style={{ borderColor: 'var(--color-border)', background: 'var(--color-background)', flexShrink: 0 }}>
+        <div className="flex gap-3 justify-end p-6 border-t border-gray-200 bg-bg flex-shrink-0">
           {activeTab === 'results' && (
             <>
               <BaseButton variant="secondary" onClick={onClose}>

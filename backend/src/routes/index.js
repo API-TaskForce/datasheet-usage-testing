@@ -1,5 +1,5 @@
 import express from 'express';
-import { runTest, getTest } from '../controllers/testsController.js';
+import { runTest, getTest, getAllTestsController } from '../controllers/testsController.js';
 import {
   createTemplate,
   getTemplate,
@@ -23,6 +23,17 @@ router.use((req, res, next) => {
 router.post('/run', validateTestSchema, (req, res) => {
   if (req.routeType === 'tests') {
     runTest(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
+// GET / (list all tests)
+router.get('/', (req, res) => {
+  if (req.routeType === 'tests') {
+    getAllTestsController(req, res);
+  } else if (req.routeType === 'templates') {
+    getAllTemplate(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }
@@ -64,15 +75,6 @@ router.post('/', (req, res) => {
     validateTemplateSchema(req, res, () => {
       createTemplate(req, res);
     });
-  } else {
-    res.status(404).json({ error: 'Not found' });
-  }
-});
-
-// GET / (list all)
-router.get('/', (req, res) => {
-  if (req.routeType === 'templates') {
-    getAllTemplate(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }

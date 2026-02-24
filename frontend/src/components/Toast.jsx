@@ -1,3 +1,4 @@
+import { Check, CircleAlert, Info, MessageCircleWarning, X } from 'lucide-react';
 import React, { useEffect } from 'react';
 
 export default function Toast({ id, message, type = 'info', onDismiss, duration = 3000 }) {
@@ -8,20 +9,11 @@ export default function Toast({ id, message, type = 'info', onDismiss, duration 
     }
   }, [duration, onDismiss]);
 
-  const bgColor = {
-    success: '#22863a',
-    error: '#cb2431',
-    warning: '#ffc107',
-    info: '#0366d6',
-  }[type];
-
-  const textColor = type === 'warning' ? '#333' : '#fff';
-
   const iconEmoji = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ⓘ',
+    success: <Check size={16} />,
+    error: <X size={16} />,
+    warning: <CircleAlert size={16} />,
+    info: <Info size={16} />,
   }[type];
 
   return (

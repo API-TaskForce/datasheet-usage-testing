@@ -1,10 +1,19 @@
-import { startTest, getJob } from '../services/testsService.js';
+import { startTest, getJob, getAllTests } from '../services/testsService.js';
 
 export async function runTest(req, res, next) {
   try {
     const config = req.body;
     const job = await startTest(config);
     res.status(202).json({ jobId: job.id, status: job.status });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAllTestsController(req, res, next) {
+  try {
+    const jobs = await getAllTests();
+    res.json({ data: jobs });
   } catch (err) {
     next(err);
   }

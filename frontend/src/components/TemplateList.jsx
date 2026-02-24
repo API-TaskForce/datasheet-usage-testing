@@ -9,17 +9,17 @@ export default function TemplateList({ templates = [], onEdit, onCreate, onTest,
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">API Templates</h2>
         <BaseButton variant="primary" onClick={onCreate} size='lg'>
-          + New Template
+          + New API
         </BaseButton>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <div className="flex flex-col gap-4">
         {templates.map((t) => (
           <BaseCard key={t.id}>
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex items-start justify-between mb-3 border-b border-red-500 p-3">
               <div className='flex flex-row items-center justify-between mb-3 gap-4'>
                 <h3 className="font-bold text-lg">{t.name}</h3>
-                <p className="text-sm text-primary">{t.apiUri}</p>
+                <p className="flex text-sm text-gray-600 bg-gray-100 p-2 rounded-xl text-center">{t.apiUri}</p>
               </div>
               <span
                 className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-warning'}`}
@@ -32,17 +32,16 @@ export default function TemplateList({ templates = [], onEdit, onCreate, onTest,
               
             </div>
             <div
-              className="flex gap-2 mt-4 pt-4 border-t"
-              style={{ borderColor: 'var(--color-border)' }}
+              className="flex gap-2 mt-4 pt-4 border-t border-gray-200"
             >
-              <BaseButton size="sm" variant="primary" onClick={() => onEdit(t)}>
+              <BaseButton size="sm" variant="secondary" onClick={() => onEdit(t)}>
                 <Pencil size={16} /> Edit
               </BaseButton>
-              <BaseButton size="sm" variant="secondary" onClick={() => onTest(t)}>
+              <BaseButton size="sm" variant="success" onClick={() => onTest(t)}>
                 <TestTube2 size={16} /> Test
               </BaseButton>
-              <BaseButton size="sm" variant="danger" onClick={() => onDelete(t)}>
-                <Trash2 size={16} />
+              <BaseButton size="sm" variant="primary" onClick={() => onDelete(t)}>
+                <Trash2 size={16} /> Delete
               </BaseButton>
             </div>
           </BaseCard>

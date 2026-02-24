@@ -10,4 +10,8 @@ export async function startTest(config) {
 
 export async function getJob(id) {
   return Engine.getJob(id);
+}
+
+export async function getAllTests() {
+  return Engine.listJobs();
 } 

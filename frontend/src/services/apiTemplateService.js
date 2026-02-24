@@ -128,4 +128,18 @@ export async function getTestResults(jobId) {
   }
 }
 
+/**
+ * Get all test logs/jobs
+ * @returns {Promise<array>} Array of test jobs
+ */
+export async function getTestLogs() {
+  try {
+    const response = await instance.get('/tests');
+    return response.data.data;
+  } catch (err) {
+    console.error('[getTestLogs] Error:', err);
+    throw err;
+  }
+}
+
 export default instance;

@@ -1,5 +1,5 @@
 import { request as httpRequest } from "./lib/httpClient.js";
-import { createJob, updateJob, getJob } from "./db.js";
+import { createJob, updateJob, getJob, listJobs } from "./db.js";
 import { makeId } from "./lib/utils.js";
 import { error as logError, success as logSuccess } from "./lib/log.js";
 
@@ -234,4 +234,4 @@ export async function runJob(id) {
   });
 }
 
-export { getJob };
+export { getJob, listJobs };
