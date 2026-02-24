@@ -72,6 +72,88 @@ export async function deleteTemplate(id) {
 }
 
 /**
+ * Execute test with logging to database
+ * Creates a job and polls for completion, saves all results to DB
+ * @param {string} url - Full URL to test
+ * @param {string} method - HTTP method (GET, POST, etc.)
+ * @param {object} headers - Custom headers
+ * @param {object} body - Request body for POST/PUT/PATCH
+ * @returns {Promise<object>} Test results with { status, statusText, data, headers, url, method }
+ */
+export async function executeTestWithLogging(url, method = 'GET', headers = {}, body = null) {
+  try {
+    console.log('[executeTestWithLogging] Starting logged test:', { url, method });
+    
+    // Handle body parsing - body can be string or already parsed object
+    let parsedBody = null;
+    if (body) {
+      if (typeof body === 'string') {
+        try {
+          parsedBody = JSON.parse(body);
+        } catch (e) {
+          parsedBody = body;
+        }
+      } else {
+        parsedBody = body;
+      }
+    }
+    
+    // Create the test config
+    const testConfig = {
+      endpoint: url,
+      request: {
+        method,
+        headers,
+        body: parsedBody,
+      },
+      clients: 1,
+      totalRequests: 1,
+    };
+
+    // Execute test
+    const { jobId } = await testApi(testConfig);
+    console.log('[executeTestWithLogging] Job created:', jobId);
+
+    // Poll for results with timeout of 30 seconds
+    let job;
+    let attempts = 0;
+    const maxAttempts = 60; // 60 * 500ms = 30s
+
+    while (attempts < maxAttempts) {
+      job = await getTestResults(jobId);
+      
+      if (job.status === 'completed' || job.status === 'failed') {
+        console.log('[executeTestWithLogging] Job completed:', job.status);
+        break;
+      }
+
+      // Wait 500ms before retry
+      await new Promise(r => setTimeout(r, 500));
+      attempts++;
+    }
+
+    // Extract result from the job
+    const result = job.results?.[0] || {};
+    
+    return {
+      status: result.statusCode || 500,
+      statusText: result.response?.statusText || 'Unknown',
+      data: result.response?.body || '',
+      headers: result.response?.headers || {},
+      url,
+      method,
+      requestHeaders: headers,
+      requestBody: body,
+      jobId: jobId,
+      duration: result.durationMs || 0,
+    };
+  } catch (err) {
+    console.error('[executeTestWithLogging] Error:', err);
+    throw err;
+  }
+}
+
+/**
  * Proxy request to external API (solves CORS)
  * @param {string} url - Full URL to fetch
  * @param {string} method - HTTP method (GET, POST, etc.)

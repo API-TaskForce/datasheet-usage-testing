@@ -95,7 +95,7 @@ export default function TemplatesPage() {
           <div className="modal-overlay">
             <div className="modal-panel">
               <div className="p-4">
-                <TemplateTestView template={testTemplate} />
+                <TemplateTestView template={testTemplate} OnClose={() => setShowTest(false)} />
               </div>
             </div>
           </div>

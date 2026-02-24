@@ -2,13 +2,13 @@ import React from 'react';
 import BaseCard from './BaseCard.jsx';
 import BaseButton from './BaseButton.jsx';
 import AuthBadge from './AuthBadge.jsx';
-import { Pencil, PencilLine, TestTube2, Trash2 } from 'lucide-react';
+import { Pencil, PencilLine, Play, TestTube2, Trash2 } from 'lucide-react';
 export default function TemplateList({ templates = [], onEdit, onCreate, onTest, onDelete, onRefresh }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">API Templates</h2>
-        <BaseButton variant="primary" onClick={onCreate} size='lg'>
+        <BaseButton variant="primary" onClick={onCreate} size='md'>
           + New API
         </BaseButton>
       </div>
@@ -37,10 +37,10 @@ export default function TemplateList({ templates = [], onEdit, onCreate, onTest,
               <BaseButton size="sm" variant="secondary" onClick={() => onEdit(t)}>
                 <Pencil size={16} /> Edit
               </BaseButton>
-              <BaseButton size="sm" variant="success" onClick={() => onTest(t)}>
-                <TestTube2 size={16} /> Test
+              <BaseButton size="sm" variant="primary" onClick={() => onTest(t)}>
+                <Play size={16} /> Test
               </BaseButton>
-              <BaseButton size="sm" variant="primary" onClick={() => onDelete(t)}>
+              <BaseButton size="sm" variant="secondary" onClick={() => onDelete(t)}>
                 <Trash2 size={16} /> Delete
               </BaseButton>
             </div>
