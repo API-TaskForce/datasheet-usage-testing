@@ -1,5 +1,22 @@
 import express from 'express';
-import { runTest, getTest, getAllTestsController } from '../controllers/testsController.js';
+import {
+  runTest,
+  getTest,
+  getAllTestsController,
+  getActiveJobController,
+} from '../controllers/testsController.js';
+
+const router = express.Router();
+
+// ... (in the GET section)
+// GET /tests/:id/active
+router.get('/:id/active', (req, res) => {
+  if (req.routeType === 'tests') {
+    getActiveJobController(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
 import {
   createTemplate,
   getTemplate,
@@ -8,29 +25,28 @@ import {
   deleteTemplate,
   getTemplateDatasheet,
 } from '../controllers/apiTemplatesController.js';
+import {
+  createConfig,
+  listConfigs,
+  updateConfig,
+  deleteConfig,
+  getConfig,
+} from '../controllers/testConfigsController.js';
 import { validateTestSchema, validateTemplateSchema } from '../middlewares/validator.js';
 
-const router = express.Router();
-
-// Determine if this is a templates or tests route based on the request path
+// Determine if this is a templates, tests or configs route based on the request path
 router.use((req, res, next) => {
-  req.routeType = req.baseUrl.includes('/templates') ? 'templates' : 'tests';
+  if (req.baseUrl.includes('/templates')) req.routeType = 'templates';
+  else if (req.baseUrl.includes('/tests')) req.routeType = 'tests';
+  else if (req.baseUrl.includes('/test-configs')) req.routeType = 'configs';
   next();
 });
 
-// =============== Tests Routes ===============
-// POST /tests/run
-router.post('/run', validateTestSchema, (req, res) => {
-  if (req.routeType === 'tests') {
-    runTest(req, res);
-  } else {
-    res.status(404).json({ error: 'Not found' });
-  }
-});
-
-// GET / (list all tests)
+// =============== Test Configs Routes ===============
 router.get('/', (req, res) => {
-  if (req.routeType === 'tests') {
+  if (req.routeType === 'configs') {
+    listConfigs(req, res);
+  } else if (req.routeType === 'tests') {
     getAllTestsController(req, res);
   } else if (req.routeType === 'templates') {
     getAllTemplate(req, res);
@@ -39,39 +55,10 @@ router.get('/', (req, res) => {
   }
 });
 
-// GET /tests/:id
-router.get('/:id', (req, res) => {
-  if (req.routeType === 'tests' && req.params.id !== 'detail' && !req.params.id.includes('datasheet')) {
-    getTest(req, res);
-  } else if (req.routeType === 'templates') {
-    // Templates routes
-    if (req.params.id === 'datasheet') {
-      // GET /templates/:id/datasheet
-      getTemplateDatasheet(req, res);
-    } else if (req.params.id === 'detail') {
-      // This shouldn't be called
-      res.status(404).json({ error: 'Not found' });
-    } else {
-      // GET /templates/:id
-      getTemplate(req, res);
-    }
-  } else {
-    res.status(404).json({ error: 'Not found' });
-  }
-});
-
-// Handle /:id/datasheet for templates
-router.get('/:id/datasheet', (req, res) => {
-  if (req.routeType === 'templates') {
-    getTemplateDatasheet(req, res);
-  } else {
-    res.status(404).json({ error: 'Not found' });
-  }
-});
-
-// POST / (create)
 router.post('/', (req, res) => {
-  if (req.routeType === 'templates') {
+  if (req.routeType === 'configs') {
+    createConfig(req, res);
+  } else if (req.routeType === 'templates') {
     validateTemplateSchema(req, res, () => {
       createTemplate(req, res);
     });
@@ -80,9 +67,36 @@ router.post('/', (req, res) => {
   }
 });
 
-// PUT /:id (update)
+router.post('/run', validateTestSchema, (req, res) => {
+  if (req.routeType === 'tests') {
+    runTest(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
+router.get('/:id', (req, res) => {
+  if (req.routeType === 'configs') {
+    getConfig(req, res);
+  } else if (
+    req.routeType === 'tests' &&
+    req.params.id !== 'detail' &&
+    !req.params.id.includes('datasheet')
+  ) {
+    getTest(req, res);
+  } else if (req.routeType === 'templates') {
+    // ... templates logic
+    if (req.params.id === 'datasheet') getTemplateDatasheet(req, res);
+    else getTemplate(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
 router.put('/:id', (req, res) => {
-  if (req.routeType === 'templates') {
+  if (req.routeType === 'configs') {
+    updateConfig(req, res);
+  } else if (req.routeType === 'templates') {
     validateTemplateSchema(req, res, () => {
       updateTemplate(req, res);
     });
@@ -91,9 +105,10 @@ router.put('/:id', (req, res) => {
   }
 });
 
-// DELETE /:id
 router.delete('/:id', (req, res) => {
-  if (req.routeType === 'templates') {
+  if (req.routeType === 'configs') {
+    deleteConfig(req, res);
+  } else if (req.routeType === 'templates') {
     deleteTemplate(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });

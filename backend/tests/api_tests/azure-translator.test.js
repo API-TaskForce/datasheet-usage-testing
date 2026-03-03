@@ -1,6 +1,6 @@
 import request from "supertest";
-import app from "../src/server.js";
-import { waitForJob } from "./helpers/testHelpers.js";
+import app from "../../src/server.js";
+import { waitForJob } from "../helpers/testHelpers.js";
 
 describe("Azure Translator - Rate Limit Testing", () => {
   // Configuración de Azure Translator

@@ -15,3 +15,7 @@ export async function getJob(id) {
 export async function getAllTests() {
   return Engine.listJobs();
 } 
+
+export function getActiveJob(id) {
+  return Engine.activeJobs.get(id);
+}

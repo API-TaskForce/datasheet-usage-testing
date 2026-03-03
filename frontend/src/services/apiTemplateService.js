@@ -196,7 +196,22 @@ export async function testApi(testConfig) {
 }
 
 /**
- * Get test results by job ID
+ * Get active job results by job ID (current state in memory)
+ * @param {string} jobId - Job ID
+ * @returns {Promise<object>} Job state from memory
+ */
+export async function getActiveJobResults(jobId) {
+  try {
+    const response = await instance.get(`/tests/${jobId}/active`);
+    return response.data;
+  } catch (err) {
+    console.error('[getActiveJobResults] Error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get test results by job ID (from database)
  * @param {string} jobId - Job ID
  * @returns {Promise<object>} Job data with { id, status, results, summary }
  */
@@ -222,6 +237,39 @@ export async function getTestLogs() {
     console.error('[getTestLogs] Error:', err);
     throw err;
   }
+}
+
+// =============== TEST CONFIGURATIONS ===============
+
+/**
+ * Get all test configs for a template
+ */
+export async function getTestConfigs(templateId) {
+  const response = await instance.get('/test-configs', { params: { templateId } });
+  return response.data.data;
+}
+
+/**
+ * Create new test config
+ */
+export async function createTestConfig(configData) {
+  const response = await instance.post('/test-configs', configData);
+  return response.data;
+}
+
+/**
+ * Update test config
+ */
+export async function updateTestConfig(id, configData) {
+  const response = await instance.put(`/test-configs/${id}`, configData);
+  return response.data;
+}
+
+/**
+ * Delete test config
+ */
+export async function deleteTestConfig(id) {
+  await instance.delete(`/test-configs/${id}`);
 }
 
 export default instance;

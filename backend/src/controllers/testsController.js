@@ -1,4 +1,4 @@
-import { startTest, getJob, getAllTests } from '../services/testsService.js';
+import { startTest, getJob, getAllTests, getActiveJob } from '../services/testsService.js';
 
 export async function runTest(req, res, next) {
   try {
@@ -28,3 +28,9 @@ export async function getTest(req, res, next) {
     next(err);
   }
 } 
+
+export function getActiveJobController(req, res) {
+  const job = getActiveJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Active job not found' });
+  res.json(job);
+}

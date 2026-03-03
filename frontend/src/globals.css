@@ -42,7 +42,7 @@
 @layer components {
 
   .btn {
-    @apply w-auto flex flex-row gap-2 inline-flex items-center justify-center rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed border border-solid;
+    @apply w-auto inline-flex items-center justify-center rounded-full font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed border border-solid;
   }
 
   .btn-primary {
@@ -82,9 +82,22 @@
   .form-input,
   .form-select,
   .form-textarea {
-    @apply w-full h-fit px-3 py-2 rounded-xl text-base border border-gray-200 bg-white text-text transition-colors;
+    @apply w-full h-fit px-3 py-2 rounded-xl text-base border border-gray-200 bg-white text-text transition-colors outline-none;
     max-height: 350px;
     max-width: 100%;
+  }
+
+  .form-select {
+    @apply cursor-pointer bg-no-repeat bg-right;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+    appearance: none;
+  }
+
+  .form-select option {
+    @apply bg-white text-text py-2;
   }
 
   .form-textarea {
@@ -94,7 +107,7 @@
   .form-input:focus,
   .form-select:focus,
   .form-textarea:focus {
-    @apply outline-none border-secondary;
+    @apply border-secondary ring-2 ring-secondary/20;
   }
 
   .form-group {
@@ -108,27 +121,27 @@
 
 @layer components {
   .badge {
-    @apply inline-block px-3 py-1 rounded-full text-sm font-semibold border;
+    @apply flex items-center justify-center h-fit w-fit p-8 rounded-full border;
   }
 
   .badge-success {
-    @apply text-success border-success;
+    @apply text-success bg-success/10;
   }
 
   .badge-error {
-    @apply text-error border-error;
+    @apply text-error bg-error/10;
   }
 
   .badge-warning {
-    @apply text-warning border-warning;
+    @apply text-warning bg-warning/10;
   }
 
   .badge-info {
-    @apply text-info border-info;
+    @apply text-info bg-info/10;
   }
 
   .badge-accent {
-    @apply text-accent border-accent;
+    @apply text-accent bg-accent/10;
   }
 }
 
@@ -176,7 +189,7 @@
   }
 
   .section-card {
-    @apply flex flex-col rounded-lg border border-gray-200 bg-white shadow-sm p-4;
+    @apply flex flex-col w-full h-full rounded-lg border border-gray-200 bg-white shadow-sm p-4;
   }
 
   .section-card-header {
@@ -450,24 +463,24 @@
 
 @layer components {
   .main-layout {
-    @apply flex h-screen w-screen overflow-hidden;
+    @apply bg-bg flex flex-row h-screen w-full overflow-hidden;
   }
 
   .main-content {
-    @apply flex-1 overflow-auto transition-all duration-300 bg-bg;
+    @apply bg-bg w-full overflow-auto transition-all duration-300;
   }
 
   .main-content.sidebar-open {
-    @apply ml-64;
+    @apply ml-8;
   }
 
   .main-content.sidebar-closed {
-    @apply ml-20;
+    @apply ml-8;
   }
 
   /* Sidebar */
   .sidebar {
-    @apply w-64 bg-gray-700 left-0 top-0 h-screen text-white transition-all duration-300 flex flex-col z-40;
+    @apply w-full lg:w-1/6 bg-secondary left-0 top-0 h-screen text-white transition-all duration-300 flex flex-col z-40;
   }
 
   .sidebar.sidebar-closed {
@@ -476,7 +489,7 @@
 
   /* Sidebar header */
   .sidebar-header {
-    @apply flex items-center justify-center gap-3 p-4 border-b border-gray-700;
+    @apply flex flex-row items-center justify-center gap-2 p-2 border-b border-secondary;
   }
 
   .sidebar-logo-btn {
@@ -488,7 +501,7 @@
   }
 
   .sidebar-logo-text {
-    @apply font-bold text-white;
+    @apply text-secondary-lighter font-bold;
   }
 
   .sidebar-logo-label {
