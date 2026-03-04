@@ -56,6 +56,8 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
         h.push({ key: 'Authorization', value: `Bearer ${template.authCredential}` });
       else if (template.authMethod === 'BASIC_AUTH')
         h.push({ key: 'Authorization', value: `Basic ${template.authCredential}` });
+      else if (template.authMethod === 'RAPID_API' || template.authMethod === 'RAPIDAPI')
+        h.push({ key: 'x-rapidapi-key', value: template.authCredential || '' });
     }
     setHeaders(h);
 

@@ -1,0 +1,8 @@
+planning aggregation
+- fetch jobs via getTestLogs()
+- filter jobs where job.config.endpoint equals template.apiUri OR includes
+- for each job, use job.createdAt or job.startedAt or finishedAt to bucket
+- aggregate totals as job.summary.total (fallback to results length)
+- produce arrays: times (unix seconds) and totals
+- for month, use first day of month timestamp
+- sort keys ascending

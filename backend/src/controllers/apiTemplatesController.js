@@ -93,6 +93,14 @@ export async function deleteTemplate(req, res) {
 export async function getTemplateDatasheet(req, res) {
   try {
     const template = await getTemplateWithParsedDatasheet(req.params.id);
+    success(`Datasheet retrieved for template: ${req.params.id}`);
+    console.log('[getTemplateDatasheet] Template:', {
+      id: template.id,
+      name: template.name,
+      hasDatasheet: !!template.datasheet,
+      datasheetType: typeof template.datasheet,
+      datasheetKeys: template.datasheet ? Object.keys(template.datasheet).slice(0, 5) : null,
+    });
     res.json(template);
   } catch (err) {
     logError(`Error getting template datasheet: ${err.message}`);

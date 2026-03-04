@@ -5,18 +5,6 @@ import {
   getAllTestsController,
   getActiveJobController,
 } from '../controllers/testsController.js';
-
-const router = express.Router();
-
-// ... (in the GET section)
-// GET /tests/:id/active
-router.get('/:id/active', (req, res) => {
-  if (req.routeType === 'tests') {
-    getActiveJobController(req, res);
-  } else {
-    res.status(404).json({ error: 'Not found' });
-  }
-});
 import {
   createTemplate,
   getTemplate,
@@ -33,6 +21,8 @@ import {
   getConfig,
 } from '../controllers/testConfigsController.js';
 import { validateTestSchema, validateTemplateSchema } from '../middlewares/validator.js';
+
+const router = express.Router();
 
 // Determine if this is a templates, tests or configs route based on the request path
 router.use((req, res, next) => {
@@ -75,19 +65,31 @@ router.post('/run', validateTestSchema, (req, res) => {
   }
 });
 
+// Specific route for datasheet (must come before /:id)
+router.get('/:id/datasheet', (req, res) => {
+  if (req.routeType === 'templates') {
+    getTemplateDatasheet(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
+// Specific route for active jobs (must come before /:id)
+router.get('/:id/active', (req, res) => {
+  if (req.routeType === 'tests') {
+    getActiveJobController(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
 router.get('/:id', (req, res) => {
   if (req.routeType === 'configs') {
     getConfig(req, res);
-  } else if (
-    req.routeType === 'tests' &&
-    req.params.id !== 'detail' &&
-    !req.params.id.includes('datasheet')
-  ) {
+  } else if (req.routeType === 'tests') {
     getTest(req, res);
   } else if (req.routeType === 'templates') {
-    // ... templates logic
-    if (req.params.id === 'datasheet') getTemplateDatasheet(req, res);
-    else getTemplate(req, res);
+    getTemplate(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }

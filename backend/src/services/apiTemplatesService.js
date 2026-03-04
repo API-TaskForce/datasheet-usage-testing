@@ -115,11 +115,24 @@ export async function deleteTemplateById(id) {
  */
 export function parseDatasheet(yamlContent) {
   try {
+    if (!yamlContent || typeof yamlContent !== 'string') {
+      console.warn('[parseDatasheet] Invalid datasheet content:', { type: typeof yamlContent, isNull: yamlContent === null, isEmpty: yamlContent === '' });
+      return null;
+    }
+    
+    if (yamlContent.trim() === '') {
+      console.warn('[parseDatasheet] Datasheet is empty string');
+      return null;
+    }
+    
     validateYAML(yamlContent);
-    return YAML.parse(yamlContent);
+    const parsed = YAML.parse(yamlContent);
+    console.log('[parseDatasheet] Successfully parsed datasheet with keys:', Object.keys(parsed).slice(0, 5));
+    return parsed;
   } catch (err) {
     logError(`Error parsing YAML: ${err.message}`);
-    throw new Error('Invalid YAML format');
+    console.error('[parseDatasheet] YAML Content:', yamlContent?.substring(0, 200));
+    throw new Error(`Invalid YAML format: ${err.message}`);
   }
 }
 
@@ -144,9 +157,15 @@ function validateYAML(yamlContent) {
 export async function getTemplateWithParsedDatasheet(id) {
   try {
     const template = await getTemplateById(id);
+    if (!template) {
+      throw new Error('Template not found');
+    }
+    
+    console.log('[getTemplateWithParsedDatasheet] Template found:', { id: template.id, hasDatasheet: !!template.datasheet });
+    
     return {
       ...template,
-      datasheet: parseDatasheet(template.datasheet),
+      datasheet: template.datasheet ? parseDatasheet(template.datasheet) : null,
     };
   } catch (err) {
     logError(`Error getting template with parsed datasheet: ${err.message}`);

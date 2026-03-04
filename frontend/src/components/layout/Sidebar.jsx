@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Menu, X, LayoutDashboard, FileText } from 'lucide-react';
 
 export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
-  const logo = '/logoisa.svg';
+  const logo = '/score-logo.png';
   const navItems = [
     {
       id: 'dashboard',
@@ -40,7 +40,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
               <img src={logo} alt="Logo" className="sidebar-logo-img" />
             </div>
           </button>
-          {isOpen && <span className="sidebar-logo-text">API Tester</span>}
+          {isOpen && <span className="sidebar-logo-text">API Usage Testing</span>}
         </div>
 
         {/* Navigation */}

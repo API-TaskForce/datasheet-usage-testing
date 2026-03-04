@@ -226,6 +226,21 @@ export async function getTestResults(jobId) {
 }
 
 /**
+ * Attempt to fetch API limits (quotaDaily, rateDaily) for a template
+ * @param {string|number} templateId - Template identifier (id or name)
+ */
+export async function getApiLimits(templateId) {
+  try {
+    if (!templateId) throw new Error('Missing template identifier');
+    const response = await instance.get(`/templates/${templateId}/limits`);
+    return response.data;
+  } catch (err) {
+    console.warn('[getApiLimits] Could not fetch limits:', err?.message || err);
+    throw err;
+  }
+}
+
+/**
  * Get all test logs/jobs
  * @returns {Promise<array>} Array of test jobs
  */

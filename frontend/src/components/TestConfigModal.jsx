@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import BaseCard from './BaseCard.jsx';
 import BaseButton from './BaseButton.jsx';
-import { X, Plus, Pencil, Trash2, Save, MoreVertical } from 'lucide-react';
+import { X, Plus, Pencil, Trash2, Save, MoreVertical, Code, AlertCircle, Check } from 'lucide-react';
 import {
   getTestConfigs,
   createTestConfig,
@@ -94,6 +94,37 @@ export default function TestConfigModal({ template, onClose }) {
     }
   };
 
+  const handleFormatJSON = () => {
+    try {
+      if (!formData.body || formData.body.trim() === '') {
+        toast.info('No JSON content to format');
+        return;
+      }
+
+      let jsonStr = formData.body;
+
+      // Remove trailing commas before closing braces/brackets
+      jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+
+      // Fix unquoted object keys - comprehensive multi-pass approach
+      // Pass 1: Keys after { or , (handles most common cases)
+      jsonStr = jsonStr.replace(/([{,\n]\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/g, '$1"$2":');
+      
+      // Pass 2: Keys at start of document or after whitespace
+      jsonStr = jsonStr.replace(/^\s*([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/m, '"$1":');
+      
+      // Pass 3: Keys after opening bracket in array of objects
+      jsonStr = jsonStr.replace(/(\[\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/g, '$1"$2":');
+
+      const parsed = JSON.parse(jsonStr);
+      const formatted = JSON.stringify(parsed, null, 2);
+      setFormData({ ...formData, body: formatted });
+      toast.success('JSON formatted and corrected successfully');
+    } catch (err) {
+      toast.error(`Invalid JSON: ${err.message}`);
+    }
+  };
+
   return (
     <div className="modal-overlay z-[60]">
       <div className="modal-panel max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -110,7 +141,7 @@ export default function TestConfigModal({ template, onClose }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+        <div className="flex-1 overflow-y-auto p-6 bg-bg">
           {!showForm ? (
             <div className="space-y-4">
               <div className="flex justify-end">
@@ -120,11 +151,11 @@ export default function TestConfigModal({ template, onClose }) {
               </div>
 
               {loading ? (
-                <div className="py-12 text-center text-slate-400">Loading configurations...</div>
+                <div className="py-12 text-center text-text">Loading configurations...</div>
               ) : configs.length === 0 ? (
-                <div className="py-20 text-center bg-white rounded-2xl border border-dashed border-slate-300">
-                  <p className="text-slate-400 font-medium">No predefined tests yet</p>
-                  <p className="text-slate-400 text-sm mt-1">
+                <div className="py-20 text-center bg-white rounded-2xl border border-dashed border-border">
+                  <p className="text-text font-medium">No predefined tests yet</p>
+                  <p className="text-text text-sm mt-1">
                     Create one to speed up your testing workflow
                   </p>
                 </div>
@@ -133,16 +164,16 @@ export default function TestConfigModal({ template, onClose }) {
                   {configs.map((c) => (
                     <div
                       key={c.id}
-                      className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all group"
+                      className="bg-white p-4 rounded-xl border border-border shadow-sm hover:shadow-md transition-all group"
                     >
                       <div className="flex justify-between items-start">
                         <div>
-                          <h3 className="font-bold text-slate-800">{c.testName}</h3>
+                          <h3 className="font-bold text-text">{c.testName}</h3>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-black uppercase">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-bg text-text font-black uppercase">
                               {c.method}
                             </span>
-                            <span className="text-xs text-slate-400 font-mono">{c.path}</span>
+                            <span className="text-xs text-text font-mono">{c.path}</span>
                           </div>
                         </div>
                         <div className="flex gap-1">
@@ -161,15 +192,15 @@ export default function TestConfigModal({ template, onClose }) {
                       <div className="mt-4 pt-4 border-t border-slate-50 grid grid-cols-3 gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">
                         <div>
                           <p className="text-slate-300 text-[8px]">Clients</p>
-                          <p className="text-slate-600">{c.clients}</p>
+                          <p className="text-text">{c.clients}</p>
                         </div>
                         <div>
                           <p className="text-slate-300 text-[8px]">Requests</p>
-                          <p className="text-slate-600">{c.totalRequests}</p>
+                          <p className="text-text">{c.totalRequests}</p>
                         </div>
                         <div>
                           <p className="text-slate-300 text-[8px]">Timeout</p>
-                          <p className="text-slate-600">{c.timeoutMs}ms</p>
+                          <p className="text-text">{c.timeoutMs}ms</p>
                         </div>
                       </div>
                     </div>
@@ -180,10 +211,10 @@ export default function TestConfigModal({ template, onClose }) {
           ) : (
             <form
               onSubmit={handleSubmit}
-              className="bg-white p-6 rounded-2xl border border-slate-200 space-y-6"
+              className="bg-white p-6 rounded-2xl border border-border space-y-6"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-800">
+                <h3 className="text-lg font-bold text-text">
                   {editingConfig ? 'Edit Config' : 'New Config'}
                 </h3>
                 <BaseButton variant="ghost" onClick={() => setShowForm(false)} size="sm">
@@ -194,21 +225,21 @@ export default function TestConfigModal({ template, onClose }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
+                    <label className="block text-xs font-bold text-accent uppercase tracking-widest mb-2">
                       Config Name
                     </label>
                     <input
                       required
                       value={formData.testName}
                       onChange={(e) => setFormData({ ...formData, testName: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all"
+                      className="w-full bg-bg border border-border rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all"
                       placeholder="e.g., Stress Test 100"
                     />
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-1">
-                      <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
+                      <label className="block text-xs font-bold text-accent uppercase tracking-widest mb-2">
                         Method
                       </label>
                       <select
@@ -223,13 +254,13 @@ export default function TestConfigModal({ template, onClose }) {
                       </select>
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
+                      <label className="block text-xs font-bold text-accent uppercase tracking-widest mb-2">
                         Path
                       </label>
                       <input
                         value={formData.path}
                         onChange={(e) => setFormData({ ...formData, path: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-mono text-sm"
+                        className="w-full bg-bg border border-border rounded-xl px-4 py-2.5 outline-none font-mono text-sm"
                         placeholder="/api/v1/resource"
                       />
                     </div>
@@ -238,7 +269,7 @@ export default function TestConfigModal({ template, onClose }) {
 
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 text-center">
+                    <label className="block text-[10px] font-bold text-accent uppercase tracking-widest mb-2 text-center">
                       Clients
                     </label>
                     <input
@@ -247,11 +278,11 @@ export default function TestConfigModal({ template, onClose }) {
                       onChange={(e) =>
                         setFormData({ ...formData, clients: parseInt(e.target.value) })
                       }
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-center font-bold"
+                      className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-center font-bold"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 text-center">
+                    <label className="block text-[10px] font-bold text-accent uppercase tracking-widest mb-2 text-center">
                       Requests
                     </label>
                     <input
@@ -260,11 +291,11 @@ export default function TestConfigModal({ template, onClose }) {
                       onChange={(e) =>
                         setFormData({ ...formData, totalRequests: parseInt(e.target.value) })
                       }
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-center font-bold"
+                      className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-center font-bold"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 text-center">
+                    <label className="block text-[10px] font-bold text-accent uppercase tracking-widest mb-2 text-center">
                       Timeout
                     </label>
                     <input
@@ -273,28 +304,38 @@ export default function TestConfigModal({ template, onClose }) {
                       onChange={(e) =>
                         setFormData({ ...formData, timeoutMs: parseInt(e.target.value) })
                       }
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-center font-bold"
+                      className="w-full bg-bg border border-border rounded-xl px-3 py-2.5 text-center font-bold"
                     />
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                  Body (JSON)
-                </label>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-xs font-bold text-accent uppercase tracking-widest">
+                    Body (JSON)
+                  </label>
+                  <BaseButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleFormatJSON()}
+                    type="button"
+                  >
+                    <Code size={14} /> Format
+                  </BaseButton>
+                </div>
                 <textarea
                   value={formData.body}
                   onChange={(e) => setFormData({ ...formData, body: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none font-mono text-sm"
+                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 outline-none font-mono text-sm"
                   placeholder="{}"
                   rows={4}
                 />
               </div>
 
               <div className="flex justify-end pt-4 border-t border-slate-100">
-                <BaseButton variant="primary" type="submit" size="lg">
-                  <Save size={18} /> Save Configuration
+                <BaseButton variant="primary" type="submit" size="md">
+                  <Check size={18} /> Save
                 </BaseButton>
               </div>
             </form>

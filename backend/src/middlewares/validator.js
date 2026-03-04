@@ -29,9 +29,9 @@ const templateSchema = Joi.object({
   authMethod: Joi.string()
     .optional()
     .allow('')
-    .valid('', 'API_TOKEN', 'BASIC_AUTH', 'BEARER', 'OAUTH2')
+    .valid('', 'API_TOKEN', 'BASIC_AUTH', 'BEARER', 'RAPID_API', 'OAUTH2')
     .messages({
-      'any.only': 'Auth method must be one of: API_TOKEN, BASIC_AUTH, BEARER, OAUTH2'
+      'any.only': 'Auth method must be one of: API_TOKEN, BASIC_AUTH, BEARER, RAPID_API, OAUTH2'
     }),
   
   authCredential: Joi.string()
