@@ -93,4 +93,20 @@ async function listJobs() {
   return Object.values(db.jobs || {});
 }
 
-export { createJob, updateJob, getJob, listJobs };
+async function deleteJob(id) {
+  const db = await readDb();
+  if (!db.jobs || !db.jobs[id]) return false;
+  delete db.jobs[id];
+  await writeDb(db);
+  return true;
+}
+
+async function deleteAllJobs() {
+  const db = await readDb();
+  const count = Object.keys(db.jobs || {}).length;
+  db.jobs = {};
+  await writeDb(db);
+  return count;
+}
+
+export { createJob, updateJob, getJob, listJobs, deleteJob, deleteAllJobs };

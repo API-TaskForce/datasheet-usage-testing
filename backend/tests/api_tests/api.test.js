@@ -1,5 +1,5 @@
 import request from 'supertest';
-import app from '../src/server.js';
+import app from '../../src/server.js';
 import http from 'http';
 import path from 'path';
 import { promises as fs } from 'fs';
@@ -57,7 +57,7 @@ describe('API Limiter - Endpoints', () => {
     const jobId = runRes.body.jobId;
 
     // wait for job to finish (use helper)
-    const { waitForJob } = await import('./helpers/testHelpers.js');
+    const { waitForJob } = await import('../helpers/testHelpers.js');
     const job = await waitForJob(app, jobId, { timeout: 5000, interval: 100 });
 
     expect(job).toBeDefined();

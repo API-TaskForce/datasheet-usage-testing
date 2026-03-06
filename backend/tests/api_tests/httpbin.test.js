@@ -1,8 +1,8 @@
 import request from "supertest";
-import app from "../src/server.js";
+import app from "../../src/server.js";
 import path from "path";
 import { promises as fs } from "fs";
-import { waitForJob } from "./helpers/testHelpers.js";
+import { waitForJob } from "../helpers/testHelpers.js";
 
 const TEST_DB = path.join(process.cwd(), "data", `test-db.${process.pid}.json`);
 

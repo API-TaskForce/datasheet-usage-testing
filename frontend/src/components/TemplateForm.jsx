@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import yaml from 'js-yaml';
 import BaseCard from './BaseCard.jsx';
 import BaseButton from './BaseButton.jsx';
 import AuthBadge from './AuthBadge.jsx';
 import { createTemplate, updateTemplate } from '../services/apiTemplateService.js';
 import { useToast } from '../stores/toastStore.jsx';
+import { Code } from 'lucide-react';
 
 export default function TemplateForm({ template = null, onDone, onCancel }) {
   const [form, setForm] = useState({
@@ -45,6 +47,29 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
       toast.error(`Failed to save template: ${err.message}`);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleFormatYAML = () => {
+    try {
+      if (!form.datasheet || form.datasheet.trim() === '') {
+        toast.info('No YAML content to format');
+        return;
+      }
+
+      // Parse YAML to validate and then dump it with proper formatting
+      const parsed = yaml.load(form.datasheet);
+      const formatted = yaml.dump(parsed, {
+        indent: 2,
+        lineWidth: 80,
+        noRefs: true,
+        sortKeys: false,
+      });
+      
+      handleChange('datasheet', formatted);
+      toast.success('YAML formatted and validated successfully');
+    } catch (err) {
+      toast.error(`Invalid YAML: ${err.message}`);
     }
   };
 
@@ -108,7 +133,7 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
             </div>
 
             {requiresAuth && (
-              <div className="flex flex-col md:flex-row gap-6 p-2 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="card-section flex flex-col md:flex-row gap-6">
                 <div className="form-group flex-1">
                   <label className="form-label muted">Authentication Method</label>
                   <select
@@ -120,6 +145,7 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
                     <option value="API_TOKEN">API Token</option>
                     <option value="BASIC_AUTH">Basic Auth</option>
                     <option value="BEARER">Bearer Token</option>
+                    <option value="RAPID_API">Rapid API</option>
                     <option value="OAUTH2">OAuth2</option>
                   </select>
                 </div>
@@ -143,7 +169,17 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
 
           {/* Datasheet YAML */}
           <div className="form-group">
-            <label className="form-label muted">API Datasheet (YAML)</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="form-label muted">API Datasheet (YAML)</label>
+              <BaseButton
+                variant="secondary"
+                size="sm"
+                onClick={handleFormatYAML}
+                type="button"
+              >
+                <Code size={14} /> Format YAML
+              </BaseButton>
+            </div>
             <textarea
               value={form.datasheet}
               onChange={(e) => handleChange('datasheet', e.target.value)}

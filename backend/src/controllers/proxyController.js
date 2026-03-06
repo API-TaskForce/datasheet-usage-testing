@@ -1,4 +1,5 @@
 import { log, error as logError } from '../lib/log.js';
+import { detectRateLimitInfo } from '../lib/utils.js';
 
 /**
  * Proxy endpoint to forward API requests from frontend to external APIs
@@ -75,7 +76,10 @@ export const proxyRequest = async (req, res) => {
       responseBody = responseText;
     }
 
-    // Extract rate limit headers from external API
+    // Detectar información completa de rate limiting
+    const rateLimitInfo = detectRateLimitInfo(response.headers, response.status);
+
+    // Extraer headers originales de rate limit (para compatibilidad)
     const rateLimitHeaders = {};
     const commonRateLimitHeaders = [
       'x-ratelimit-limit',
@@ -87,6 +91,7 @@ export const proxyRequest = async (req, res) => {
       'ratelimit-limit',
       'ratelimit-remaining',
       'ratelimit-reset',
+      'retry-after',
     ];
 
     commonRateLimitHeaders.forEach((h) => {
@@ -96,12 +101,13 @@ export const proxyRequest = async (req, res) => {
 
     log(`Response status: ${response.status} from ${url}`);
 
-    // Return response with rate limit headers
+    // Return response with rate limit information
     res.status(response.status).json({
       status: response.status,
       statusText: response.statusText,
       data: responseBody,
       headers: rateLimitHeaders,
+      rateLimit: rateLimitInfo.detected ? rateLimitInfo : null,
     });
   } catch (err) {
     logError(`Proxy request error: ${err.message}`);

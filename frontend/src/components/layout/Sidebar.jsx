@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Menu, X, LayoutDashboard, FileText } from 'lucide-react';
 
 export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
-  const logo = '/logoisa.svg';
+  const logo = '/score-logo.png';
   const navItems = [
     {
       id: 'dashboard',
@@ -19,26 +19,15 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
   return (
     <>
       {/* Mobile toggle button */}
-      <button
-        onClick={onToggle}
-        className="sidebar-toggle"
-        aria-label="Toggle sidebar"
-      >
+      <button onClick={onToggle} className="sidebar-toggle" aria-label="Toggle sidebar">
         {isOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
       {/* Overlay for mobile */}
-      {isOpen && (
-        <div
-          className="sidebar-overlay"
-          onClick={() => onToggle()}
-        />
-      )}
+      {isOpen && <div className="sidebar-overlay" onClick={() => onToggle()} />}
 
       {/* Sidebar */}
-      <aside
-        className={`sidebar ${isOpen ? 'sidebar-open' : 'sidebar-closed'}`}
-      >
+      <aside className={`sidebar ${isOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {/* Logo section */}
         <div className="sidebar-header">
           <button
@@ -51,7 +40,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
               <img src={logo} alt="Logo" className="sidebar-logo-img" />
             </div>
           </button>
-          {isOpen && <span className="sidebar-logo-text">API Tester</span>}
+          {isOpen && <span className="sidebar-logo-text">API Usage Testing</span>}
         </div>
 
         {/* Navigation */}
@@ -74,9 +63,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
                 title={item.label}
               >
                 <Icon size={20} className="sidebar-nav-icon" />
-                <span className={`sidebar-nav-label ${!isOpen ? 'hidden' : ''}`}>
-                  {item.label}
-                </span>
+                <span className={`sidebar-nav-label ${!isOpen ? 'hidden' : ''}`}>{item.label}</span>
               </button>
             );
           })}
@@ -84,9 +71,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
 
         {/* Footer */}
         <div className="sidebar-footer">
-          <p className={`sidebar-version ${!isOpen ? 'hidden' : ''}`}>
-            v1.0.0
-          </p>
+          <p className={`sidebar-version ${!isOpen ? 'hidden' : ''}`}>v1.0.0</p>
         </div>
       </aside>
     </>

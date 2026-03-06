@@ -21,6 +21,14 @@ import {
   deleteTemplate,
 } from './db/templates.js';
 
+import {
+  createTestConfig,
+  updateTestConfig,
+  getTestConfig,
+  listTestConfigs,
+  deleteTestConfig,
+} from './db/testConfigs.js';
+
 // =============== JOBS EXPORTS ===============
 export {
   createJob,
@@ -36,5 +44,14 @@ export {
   getTemplate,
   listTemplates,
   deleteTemplate,
+};
+
+// =============== TEST CONFIGS EXPORTS ===============
+export {
+  createTestConfig,
+  updateTestConfig,
+  getTestConfig,
+  listTestConfigs,
+  deleteTestConfig,
 };
  

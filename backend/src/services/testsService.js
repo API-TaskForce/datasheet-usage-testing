@@ -1,4 +1,5 @@
 import * as Engine from '../engine.js';
+import { deleteJob as deleteJobDb, deleteAllJobs as deleteAllJobsDb } from '../db/jobs.js';
 
 // Service layer between controllers and engine/db.
 // Actualmente es un wrapper; permite añadir lógica (autorización, enriquecimiento,
@@ -15,3 +16,15 @@ export async function getJob(id) {
 export async function getAllTests() {
   return Engine.listJobs();
 } 
+
+export function getActiveJob(id) {
+  return Engine.activeJobs.get(id);
+}
+
+export async function deleteTest(id) {
+  return deleteJobDb(id);
+}
+
+export async function deleteAllTests() {
+  return deleteAllJobsDb();
+}

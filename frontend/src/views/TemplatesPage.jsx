@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import TemplateList from '../components/TemplateList.jsx';
 import TemplateForm from '../components/TemplateForm.jsx';
 import TemplateTestView from '../components/TemplateTestView.jsx';
+import TestConfigModal from '../components/TestConfigModal.jsx';
 
 import { getTemplates, deleteTemplate } from '../services/apiTemplateService.js';
 import { useToast } from '../stores/toastStore.jsx';
 
-export default function TemplatesPage() {
+export default function TemplatesPage({ onSelectTemplate }) {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -14,6 +15,8 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState(null);
   const [showTest, setShowTest] = useState(false);
   const [testTemplate, setTestTemplate] = useState(null);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [configTemplate, setConfigTemplate] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const toast = useToast();
 
@@ -58,6 +61,7 @@ export default function TemplatesPage() {
 
         <TemplateList
           templates={templates}
+          onSelect={onSelectTemplate}
           onEdit={(t) => {
             setEditing(t);
             setShowForm(true);
@@ -72,6 +76,10 @@ export default function TemplatesPage() {
           }}
           onDelete={handleDelete}
           onRefresh={load}
+          onManageConfigs={(t) => {
+            setConfigTemplate(t);
+            setShowConfigModal(true);
+          }}
         />
 
         {showForm && (
@@ -99,6 +107,10 @@ export default function TemplatesPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {showConfigModal && configTemplate && (
+          <TestConfigModal template={configTemplate} onClose={() => setShowConfigModal(false)} />
         )}
       </div>
     </div>

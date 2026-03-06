@@ -95,12 +95,12 @@ export default function TestResultModal({ result, onClose }) {
   return (
     <div className="modal-overlay">
       <BaseCard>
-        <div className="modal-panel flex flex-col" style={{ maxWidth: '1400px', maxHeight: '90vh' }}>
+        <div className="modal-panel" style={{ maxWidth: '1400px' }}>
           {/* Header */}
-          <div className="section-card-header flex justify-between items-start mb-0 border-b p-6 bg-blue-50">
+          <div className="card-header bg-blue-50">
             <div>
-              <h2 className="text-xl font-bold text-blue-700">Test Results</h2>
-              <p className="text-sm text-gray-600">Job ID: {result.id}</p>
+              <h2 className="header-title text-xl text-blue-700">Test Results</h2>
+              <p className="header-subtitle text-gray-600">Job ID: {result.id}</p>
             </div>
             <button
               onClick={onClose}
@@ -111,39 +111,39 @@ export default function TestResultModal({ result, onClose }) {
           </div>
 
           {/* Content */}
-          <div className="p-6 overflow-auto flex-1 flex flex-col">
+          <div className="card-body flex-1 flex flex-col">
             {/* Summary Statistics */}
             <div className="mb-8">
-              <h3 className="text-lg font-bold mb-4 text-text">Summary</h3>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1 border border-gray-200 rounded-lg p-4 bg-white">
-                  <p className="text-sm text-gray-600">Total Requests</p>
-                  <p className="text-3xl font-bold text-text">{summary.total}</p>
+              <h3 className="section-title">Summary</h3>
+              <div className="stats-grid sm:grid-cols-5">
+                <div className="stat-card">
+                  <p className="stat-label text-gray-600">Total Requests</p>
+                  <p className="stat-value text-text">{summary.total}</p>
                 </div>
-                <div className="flex-1 border border-green-200 rounded-lg p-4 bg-green-50">
-                  <p className="text-sm text-green-600">Success</p>
-                  <p className="text-3xl font-bold text-green-700">{summary.ok}</p>
+                <div className="stat-card stat-card-success">
+                  <p className="stat-label text-green-600">Success</p>
+                  <p className="stat-value text-green-700">{summary.ok}</p>
                 </div>
-                <div className="flex-1 border border-red-200 rounded-lg p-4 bg-red-50">
-                  <p className="text-sm text-red-600">Errors</p>
-                  <p className="text-3xl font-bold text-red-700">{summary.error}</p>
+                <div className="stat-card stat-card-error">
+                  <p className="stat-label text-red-600">Errors</p>
+                  <p className="stat-value text-red-700">{summary.error}</p>
                 </div>
-                <div className="flex-1 border border-yellow-200 rounded-lg p-4 bg-yellow-50">
-                  <p className="text-sm text-yellow-600">Rate Limited</p>
-                  <p className="text-3xl font-bold text-yellow-700">{summary.rateLimit}</p>
+                <div className="stat-card stat-card-warning">
+                  <p className="stat-label text-yellow-600">Rate Limited</p>
+                  <p className="stat-value text-yellow-700">{summary.rateLimit}</p>
                 </div>
-                <div className="flex-1 border border-gray-200 rounded-lg p-4 bg-white">
-                  <p className="text-sm text-gray-600">Avg Duration</p>
-                  <p className="text-3xl font-bold text-text">{summary.avgMs}ms</p>
+                <div className="stat-card">
+                  <p className="stat-label text-gray-600">Avg Duration</p>
+                  <p className="stat-value text-text">{summary.avgMs}ms</p>
                 </div>
               </div>
             </div>
 
             {/* Charts */}
-            <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="mb-8 grid-2col">
               {/* Status Distribution */}
-              <div className="bg-white shadow rounded-lg p-4 border border-gray-200">
-                <h3 className="font-bold text-lg mb-4 text-text">Status Distribution</h3>
+              <div className="card-section">
+                <h3 className="section-title">Status Distribution</h3>
                 <div className="relative h-64 flex justify-center">
                   <Pie data={statusChartData} options={chartOptions} />
                 </div>
@@ -151,8 +151,8 @@ export default function TestResultModal({ result, onClose }) {
 
               {/* Quota Usage */}
               {quotaChartData && (
-                <div className="bg-white shadow rounded-lg p-4 border border-gray-200">
-                  <h3 className="font-bold text-lg mb-4 text-text">Quota Usage</h3>
+                <div className="card-section">
+                  <h3 className="section-title">Quota Usage</h3>
                   <div className="relative h-64 flex justify-center">
                     <Pie data={quotaChartData} options={chartOptions} />
                   </div>
@@ -164,7 +164,7 @@ export default function TestResultModal({ result, onClose }) {
             {results.length > 0 && (
               <div className="mb-8">
                 <h3 className="text-lg font-bold mb-4 text-text">Test Requests</h3>
-                <div className="list-container max-h-64 border border-gray-200 rounded">
+                <div className="list-container max-h-64 border border-gray-200 rounded overflow-y-auto">
                   {results.map((r, idx) => (
                     <div
                       key={idx}

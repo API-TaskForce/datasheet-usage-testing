@@ -196,7 +196,22 @@ export async function testApi(testConfig) {
 }
 
 /**
- * Get test results by job ID
+ * Get active job results by job ID (current state in memory)
+ * @param {string} jobId - Job ID
+ * @returns {Promise<object>} Job state from memory
+ */
+export async function getActiveJobResults(jobId) {
+  try {
+    const response = await instance.get(`/tests/${jobId}/active`);
+    return response.data;
+  } catch (err) {
+    console.error('[getActiveJobResults] Error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get test results by job ID (from database)
  * @param {string} jobId - Job ID
  * @returns {Promise<object>} Job data with { id, status, results, summary }
  */
@@ -206,6 +221,21 @@ export async function getTestResults(jobId) {
     return response.data;
   } catch (err) {
     console.error('[getTestResults] Error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Attempt to fetch API limits (quotaDaily, rateDaily) for a template
+ * @param {string|number} templateId - Template identifier (id or name)
+ */
+export async function getApiLimits(templateId) {
+  try {
+    if (!templateId) throw new Error('Missing template identifier');
+    const response = await instance.get(`/templates/${templateId}/limits`);
+    return response.data;
+  } catch (err) {
+    console.warn('[getApiLimits] Could not fetch limits:', err?.message || err);
     throw err;
   }
 }
@@ -222,6 +252,65 @@ export async function getTestLogs() {
     console.error('[getTestLogs] Error:', err);
     throw err;
   }
+}
+
+/**
+ * Delete a single test log
+ * @param {string} id - Test log ID
+ */
+export async function deleteTestLog(id) {
+  try {
+    await instance.delete(`/tests/${id}`);
+  } catch (err) {
+    console.error('[deleteTestLog] Error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete all test logs
+ */
+export async function deleteAllTestLogs() {
+  try {
+    const response = await instance.delete('/tests');
+    return response.data;
+  } catch (err) {
+    console.error('[deleteAllTestLogs] Error:', err);
+    throw err;
+  }
+}
+
+// =============== TEST CONFIGURATIONS ===============
+
+/**
+ * Get all test configs for a template
+ */
+export async function getTestConfigs(templateId) {
+  const response = await instance.get('/test-configs', { params: { templateId } });
+  return response.data.data;
+}
+
+/**
+ * Create new test config
+ */
+export async function createTestConfig(configData) {
+  const response = await instance.post('/test-configs', configData);
+  return response.data;
+}
+
+/**
+ * Update test config
+ */
+export async function updateTestConfig(id, configData) {
+  const response = await instance.put(`/test-configs/${id}`, configData);
+  return response.data;
+}
+
+/**
+ * Delete test config
+ */
+export async function deleteTestConfig(id) {
+  await instance.delete(`/test-configs/${id}`);
 }
 
 export default instance;

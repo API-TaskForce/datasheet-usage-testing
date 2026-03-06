@@ -2,10 +2,14 @@ import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
 import routes from './routes/index.js';
+import { register } from 'prom-client';
+
+//Imports internos
 import { proxyRequest } from './controllers/proxyController.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { requestLogger } from './middlewares/logger.js';
-
+import { success } from './lib/log.js';
+import { getMetrics } from './controllers/monitoringController.js';
 const app = express();
 
 // CORS configuration for frontend
@@ -32,13 +36,24 @@ app.get('/', (req, res) => res.json({ service: 'api-limiter-service', status: 'o
 // API Routes
 // /tests -> for test execution and retrieval
 // /templates -> for API template management
+// /test-configs -> for predefined test configurations
 app.use('/tests', routes);
 app.use('/templates', routes);
+app.use('/test-configs', routes);
+app.get('/monitoring/metrics', getMetrics);
 
 // error handler
 app.use(errorHandler);
 
-import { success } from './lib/log.js';
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (ex) {
+    res.status(500).end(ex);
+  }
+});
 
 export default app;
 

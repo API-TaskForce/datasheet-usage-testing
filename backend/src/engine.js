@@ -1,10 +1,12 @@
-import { request as httpRequest } from "./lib/httpClient.js";
-import { createJob, updateJob, getJob, listJobs } from "./db.js";
-import { makeId } from "./lib/utils.js";
-import { error as logError, success as logSuccess } from "./lib/log.js";
-
+import { request as httpRequest } from './lib/httpClient.js';
+import { createJob, updateJob, getJob, listJobs } from './db.js';
+import { makeId, detectRateLimitInfo } from './lib/utils.js';
+import { error as logError, success as logSuccess } from './lib/log.js';
+import { engineRequestsCounter, engineRequestDurationHistogram } from './lib/metrics.js';
 // Limite para el tamaño del body capturado (100 KB)
 const MAX_BODY_SIZE = 100 * 1024;
+
+export const activeJobs = new Map();
 
 // Serializar body de forma segura
 function serializeBody(body) {
@@ -12,25 +14,23 @@ function serializeBody(body) {
 
   try {
     // Si es string, devolver tal cual (truncado si es muy grande)
-    if (typeof body === "string") {
+    if (typeof body === 'string') {
       return body.length > MAX_BODY_SIZE
-        ? body.substring(0, MAX_BODY_SIZE) + "\n... (truncated)"
+        ? body.substring(0, MAX_BODY_SIZE) + '\n... (truncated)'
         : body;
     }
 
     // Si es objeto, convertir a JSON
-    if (typeof body === "object") {
+    if (typeof body === 'object') {
       const serialized = JSON.stringify(body);
       return serialized.length > MAX_BODY_SIZE
-        ? serialized.substring(0, MAX_BODY_SIZE) + "\n... (truncated)"
+        ? serialized.substring(0, MAX_BODY_SIZE) + '\n... (truncated)'
         : serialized;
     }
 
     // Para otros tipos, intentar string
     const str = String(body);
-    return str.length > MAX_BODY_SIZE
-      ? str.substring(0, MAX_BODY_SIZE) + "\n... (truncated)"
-      : str;
+    return str.length > MAX_BODY_SIZE ? str.substring(0, MAX_BODY_SIZE) + '\n... (truncated)' : str;
   } catch (err) {
     return `[Error serializing body: ${err.message}]`;
   }
@@ -42,12 +42,12 @@ function extractHeaders(headers) {
 
   try {
     // Si es un método (AxiosHeaders)
-    if (typeof headers.toJSON === "function") {
+    if (typeof headers.toJSON === 'function') {
       return headers.toJSON();
     }
 
     // Si es un objeto plano
-    if (headers && typeof headers === "object") {
+    if (headers && typeof headers === 'object') {
       return { ...headers };
     }
 
@@ -62,7 +62,7 @@ export async function startTest(config) {
   const job = {
     id,
     config,
-    status: "queued",
+    status: 'queued',
     createdAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
@@ -73,9 +73,7 @@ export async function startTest(config) {
 
   // run asynchronously
   setImmediate(() =>
-    runJob(id).catch((err) =>
-      logError(`Engine error: ${err && err.stack ? err.stack : err}`),
-    ),
+    runJob(id).catch((err) => logError(`Engine error: ${err && err.stack ? err.stack : err}`))
   );
 
   return job;
@@ -86,9 +84,7 @@ function updateMetrics(metrics, elapsed, status) {
 
   metrics.total += 1;
 
-  metrics.avgMs = Math.round(
-    (metrics.avgMs * (metrics.total - 1) + elapsed) / metrics.total,
-  );
+  metrics.avgMs = Math.round((metrics.avgMs * (metrics.total - 1) + elapsed) / metrics.total);
 
   if (s === 429) metrics.rateLimit += 1;
   else if (s >= 200 && s < 300) metrics.ok += 1;
@@ -99,7 +95,7 @@ function updateMetrics(metrics, elapsed, status) {
 // Todas las peticiones se lanzan en paralelo sin intervalos
 async function executeWorker({ id, quota, config, state }) {
   const { endpoint, request, timeoutMs } = config;
-  const requestMethod = request.method || "GET";
+  const requestMethod = request.method || 'GET';
   const requestHeaders = request.headers || {};
   const requestBody = request.body;
 
@@ -125,19 +121,24 @@ async function executeWorker({ id, quota, config, state }) {
     }
 
     const elapsed = Date.now() - start;
-    const statusCode = response ? parseInt(response.status, 10) : 0;
+    const statusCode = response.status;
+    const statusType = response.ok ? 'ok' : statusCode === 429 ? 'rateLimit' : 'error';
+    
+    engineRequestsCounter.inc({ jobId: id, status_type: statusType });
+    engineRequestDurationHistogram.observe({ jobId: id, status_type: statusType }, elapsed / 1000);
 
-    // Extracción de retry-after
-    let retryAfter = null;
-    if (response && response.headers) {
-      if (typeof response.headers.get === "function") {
-        // Caso AxiosHeaders
-        retryAfter = response.headers.get("retry-after");
+    // Detectar información de rate limiting de los headers
+    const rateLimitInfo = detectRateLimitInfo(response?.headers, statusCode);
+
+    // Extracción de retry-after (mantenido por compatibilidad)
+    let retryAfter = rateLimitInfo.retryAfter || null;
+    if (!retryAfter && response && response.headers) {
+      if (typeof response.headers.get === 'function') {
+        retryAfter = response.headers.get('retry-after');
       } else {
-        // Caso objeto plano (fallback)
-        retryAfter =
-          response.headers["retry-after"] || response.headers["Retry-After"];
+        retryAfter = response.headers['retry-after'] || response.headers['Retry-After'];
       }
+      if (retryAfter) retryAfter = String(retryAfter);
     }
 
     // Construir resultado con trazas completas
@@ -146,14 +147,14 @@ async function executeWorker({ id, quota, config, state }) {
       timestamp: new Date().toISOString(),
       status:
         statusCode === 429
-          ? "rate_limited"
+          ? 'rate_limited'
           : statusCode >= 200 && statusCode < 300
-            ? "ok"
-            : "error",
+            ? 'ok'
+            : 'error',
       statusCode,
       durationMs: elapsed,
       retryAfter: retryAfter ? String(retryAfter) : null,
-      
+
       // Trazas de la solicitud
       request: {
         url: endpoint,
@@ -161,21 +162,28 @@ async function executeWorker({ id, quota, config, state }) {
         headers: requestHeaders ? { ...requestHeaders } : {},
         body: serializeBody(requestBody),
       },
-      
+
       // Trazas de la respuesta
-      response: response ? {
-        status: response.status,
-        statusText: response.statusText || "",
-        headers: extractHeaders(response.headers),
-        body: serializeBody(response.data),
-      } : null,
-      
+      response: response
+        ? {
+            status: response.status,
+            statusText: response.statusText || '',
+            headers: extractHeaders(response.headers),
+            body: serializeBody(response.data),
+          }
+        : null,
+
       // Información de error si aplica
-      error: error ? {
-        message: error.message,
-        code: error.code,
-        errorType: error.name,
-      } : null,
+      error: error
+        ? {
+            message: error.message,
+            code: error.code,
+            errorType: error.name,
+          }
+        : null,
+
+      // Información de rate limiting detectada
+      rateLimit: rateLimitInfo.detected ? rateLimitInfo : null,
     };
 
     // Guardamos en el array compartido
@@ -190,7 +198,7 @@ async function executeWorker({ id, quota, config, state }) {
 
 export async function runJob(id) {
   const job = await getJob(id);
-  if (!job) throw new Error("Job not found");
+  if (!job) throw new Error('Job not found');
 
   const { config } = job;
   // Forzamos conversión a número para evitar bucles infinitos o nulos
@@ -198,7 +206,7 @@ export async function runJob(id) {
   const totalRequests = Number(config.totalRequests) || 1;
 
   await updateJob(id, {
-    status: "running",
+    status: 'running',
     startedAt: new Date().toISOString(),
   });
 
@@ -207,6 +215,8 @@ export async function runJob(id) {
     globalSent: 0,
     metrics: { total: 0, ok: 0, error: 0, rateLimit: 0, avgMs: 0 },
   };
+
+  activeJobs.set(id, state);
 
   const perClient = Math.floor(totalRequests / clients);
   const remainder = totalRequests % clients;
@@ -223,11 +233,13 @@ export async function runJob(id) {
   // Esperamos a que todos los workers terminen realmente
   await Promise.all(workerPromises);
 
+  activeJobs.delete(id);
+
   console.log(`DEBUG FINAL: Resultados en memoria: ${state.results.length}`);
 
   // ESCRITURA FINAL: Una sola vez al terminar todo
   return await updateJob(id, {
-    status: "completed",
+    status: 'completed',
     finishedAt: new Date().toISOString(),
     results: [...state.results].sort((a, b) => a.seq - b.seq),
     summary: { ...state.metrics },
