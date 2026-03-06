@@ -45,7 +45,13 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
           return;
         }
         const data = await getTestConfigs(template.id);
-        setPredefinedConfigs(data);
+        const normalized = (data || []).map((cfg) => ({ ...cfg, isDefault: Boolean(cfg?.isDefault) }));
+        setPredefinedConfigs(normalized);
+
+        const defaultConfig = normalized.find((cfg) => cfg.isDefault);
+        if (defaultConfig) {
+          applyPredefinedConfig(defaultConfig.id);
+        }
       } catch (err) {
         console.error('Failed to load predefined configs');
       } finally {
@@ -214,7 +220,7 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
                     <option value="">Select a saved test...</option>
                     {predefinedConfigs.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.testName} ({c.method})
+                        {c.isDefault ? '[Default] ' : ''}{c.testName} ({c.method})
                       </option>
                     ))}
                   </select>

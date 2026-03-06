@@ -1,106 +1,147 @@
-# 🚀 Datasheet Usage Testing - API Monitor & Tester
+# Datasheet Usage Testing
 
-> *Aplicación web para monitorear, gestionar y testear límites de rate en APIs externas*
+Plataforma para gestionar templates de APIs, ejecutar pruebas de consumo y visualizar limites/cuotas con feedback en tiempo real.
 
-## 📖 Descripción
+## Estructura
 
-Este proyecto es una **plataforma integral** que permite a los usuarios:
+- `backend/`: API REST (Node.js + Express)
+- `frontend/`: aplicacion web (React + Vite)
+- `docs/`: documentacion tecnica
 
-✅ **Gestionar API Templates** - Crear, editar y almacenar configuración de APIs  
-✅ **Monitorear Límites** - Visualizar cuotas y límites de rate con gráficos  
-✅ **Testear Endpoints** - Ejecutar requests contra APIs y analizar respuestas  
-✅ **Ver Datasheets** - Documentación formateada de cada API  
+# Instalación
 
----
+## Requisitos de Instalación
 
-## 🏗️ Estructura del Proyecto
+- Node.js 18+
+- npm 9+
+- Git
+- Docker (opcional, solo para Prometheus/Grafana) (De momento wip)
 
-Este es un **monorepo** con arquitectura completa frontend + backend:
+## Instalacion rapida
 
+1. Clona el repositorio
+
+```bash
+git clone https://github.com/API-TaskForce/datasheet-usage-testing.git
+cd datasheet-usage-testing
 ```
-datasheet-usage-testing/
-├── backend/                    # API REST (Node.js + Express)
-├── frontend/                   # SPA (Vue 3 + Vite)
-├── IMPLEMENTATION_PLAN.md      # Plan detallado de desarrollo
-├── API_SPECIFICATION.md        # Especificación de endpoints
-├── ROADMAP.md                  # Timeline y checklists
-└── package.json                # Configuración de monorepo
-```
 
----
+2. Instala dependencias del monorepo
 
-## 🚀 Inicio Rápido
-
-### 1. Instalar dependencias
 ```bash
 npm install
 ```
 
-### 2. Ejecutar desarrollo (Backend + Frontend)
+3. Crea el archivo de entorno del backend
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Si usas Windows PowerShell y no tienes `cp`:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+```
+
+4. Inicia la aplicacion
+
 ```bash
 npm run dev
 ```
 
-Acceso:
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3000
+Servicios levantados:
 
----
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3000`
 
-## 📚 Documentación Completa
+## Configuracion minima recomendada
 
-| Documento | Descripción |
-|-----------|------------|
-| [QUICK_START.md](QUICK_START.md) | Referencia rápida de comandos |
-| [SETUP.md](SETUP.md) | Instalación y configuración detallada |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitectura técnica del sistema |
-| **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** | **Plan detallado con sprints y tareas** |
-| **[API_SPECIFICATION.md](API_SPECIFICATION.md)** | **Especificación completa de endpoints REST** |
-| **[ROADMAP.md](ROADMAP.md)** | **Timeline, checklists y métricas** |
+Edita `backend/.env` y deja al menos esto:
 
----
-
-## 🎯 Características Principales
-
-### Backend API
-- ✅ CRUD de API Templates
-- ✅ Validación con Joi
-- ✅ YAML datasheet parsing
-- ✅ Encriptación de credenciales
-- ✅ Tests con Jest (100% coverage)
-
-### Frontend Web
-- 📋 Formulario de templates
-- 📊 Dashboard con gráficos
-- 📈 Pie charts de cuota y rate limits
-- 📄 Visor de YAML formateado
-- ⚙️ Test executor de endpoints
-
----
-
-## 🧪 Testing
-
-### Tests Backend
-```bash
-npm run test                      # Ejecutar todos los tests
-npm run test -- --coverage      # Con cobertura
+```env
+NODE_ENV=development
+PORT=3000
+CORS_ORIGIN=http://localhost:5173
 ```
 
----
+Nota: No necesitas configurar todas las credenciales de APIs externas para arrancar la app. Solo agrega las que vayas a probar.
 
-## 🎓 Plan de Implementación
+## Uso de la aplicacion (flujo sugerido)
 
-Duración total: **2-3 semanas**
+1. Abre el frontend en `http://localhost:5173`.
+2. Crea o edita un template de API con su `apiUri`, autenticacion y datasheet.
+3. (Opcional) Define un test preconfigurado para esa API.
+4. En el dashboard, ejecuta `Test`.
+5. Revisa:
+- peticiones en tiempo real
+- historico de peticiones
+- capacidad/cuota y eventos de cooldown
+- limites detectados desde datasheet/respuesta
 
-**[Ver IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** para plan detallado con 4 sprints
+## Comandos utiles
 
----
+Desde la raiz del repositorio:
 
-## 📖 Más Información
+```bash
+# Arrancar backend + frontend
+npm run dev
 
-Consulta la documentación completa en los archivos MD del proyecto.
+# Compilar frontend
+npm run build
 
-- Persistir en DB real (SQLite / Postgres) para análisis a largo plazo
-- Añadir autenticación y control de acceso
-- Implementar colas y workers distribuidos (Bull, Redis)
-- Añadir métricas y dashboard (Grafana / Prometheus)
+# Previsualizar build de frontend
+npm run preview
+
+# Ejecutar tests del backend
+npm test
+```
+
+## Monitoreo opcional (Prometheus + Grafana) (WIP)
+
+```bash
+cd backend
+docker-compose up -d
+```
+
+Accesos:
+
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3001` (user: `admin`, pass: `admin`)
+
+Para detener:
+
+```bash
+cd backend
+docker-compose down
+```
+
+## Problemas comunes
+
+1. Puerto 3000 ocupado
+
+```powershell
+netstat -ano | findstr :3000
+```
+
+Cambia `PORT` en `backend/.env` si hace falta.
+
+2. El frontend no conecta con el backend
+
+Verifica `CORS_ORIGIN=http://localhost:5173` en `backend/.env`.
+
+3. Fallan tests por timeout
+
+Algunas APIs externas son lentas o inestables. Reintenta o ejecuta tests mas acotados.
+
+## Documentacion adicional
+
+- `docs/QUICK_START.md`
+- `docs/SETUP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API_SPECIFICATION.md`
+- `docs/TESTING_GUIDE.md`
+
+## Licencia
+
+ISC

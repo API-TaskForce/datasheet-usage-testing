@@ -12,6 +12,7 @@ export default function BaseButton({
     primary: 'btn-primary',
     secondary: 'btn-secondary',
     danger: 'btn-danger',
+    background: 'btn-background',
     success: 'btn-success',
     ghost: 'btn-ghost',
     icon: 'btn-icon'

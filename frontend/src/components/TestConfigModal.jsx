@@ -26,13 +26,14 @@ export default function TestConfigModal({ template, onClose }) {
     timeoutMs: 5000,
     headers: [],
     body: '',
+    isDefault: false,
   });
 
   const loadConfigs = async () => {
     setLoading(true);
     try {
       const data = await getTestConfigs(template.id);
-      setConfigs(data);
+      setConfigs((data || []).map((cfg) => ({ ...cfg, isDefault: Boolean(cfg?.isDefault) })));
     } catch (err) {
       toast.error('Failed to load test configs');
     } finally {
@@ -55,6 +56,7 @@ export default function TestConfigModal({ template, onClose }) {
       timeoutMs: 5000,
       headers: [],
       body: '',
+      isDefault: false,
     });
     setShowForm(true);
   };
@@ -76,10 +78,41 @@ export default function TestConfigModal({ template, onClose }) {
     }
   };
 
+  const unsetDefaultOnOtherConfigs = async (selectedId) => {
+    const tasks = configs
+      .filter((c) => c.id !== selectedId && c.isDefault)
+      .map((c) => updateTestConfig(c.id, { isDefault: false }));
+
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
+  };
+
+  const handleSetDefault = async (configId) => {
+    try {
+      await unsetDefaultOnOtherConfigs(configId);
+      await updateTestConfig(configId, { isDefault: true });
+      toast.success('Default test configuration updated');
+      await loadConfigs();
+    } catch (err) {
+      toast.error('Failed to set default config');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...formData, apiTemplateId: template.id, apiTemplateName: template.name };
+      const payload = {
+        ...formData,
+        isDefault: Boolean(formData.isDefault),
+        apiTemplateId: template.id,
+        apiTemplateName: template.name,
+      };
+
+      if (payload.isDefault) {
+        await unsetDefaultOnOtherConfigs(editingConfig?.id || null);
+      }
+
       if (editingConfig) {
         await updateTestConfig(editingConfig.id, payload);
         toast.success('Test configuration updated');
@@ -173,10 +206,25 @@ export default function TestConfigModal({ template, onClose }) {
                             <span className="badge badge-secondary text-[10px] px-2 py-0.5 rounded-full bg-bg font-black uppercase">
                               {c.method}
                             </span>
+                            {c.isDefault && (
+                              <span className="badge badge-info text-[10px] px-2 py-0.5 rounded-full font-black uppercase">
+                                Default
+                              </span>
+                            )}
                             <span className="text-xs text-text font-mono">{c.path}</span>
                           </div>
                         </div>
                         <div className="flex gap-1">
+                          {!c.isDefault && (
+                            <BaseButton
+                              variant="secondary"
+                              onClick={() => handleSetDefault(c.id)}
+                              size="sm"
+                              title="Set as default"
+                            >
+                              Set Default
+                            </BaseButton>
+                          )}
                           <BaseButton variant="secondary" onClick={() => handleEdit(c)} size="sm">
                             <Pencil size={16} />
                           </BaseButton>
@@ -332,6 +380,15 @@ export default function TestConfigModal({ template, onClose }) {
                   rows={4}
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-sm text-text">
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.isDefault)}
+                  onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
+                />
+                Usar este test preconfigurado como predeterminado
+              </label>
 
               <div className="flex justify-end pt-4 border-t border-slate-100">
                 <BaseButton variant="primary" type="submit" size="md">

@@ -56,7 +56,7 @@ export default function DatasheetViewer({ datasheet, templateName, templateUri }
   const hasCustomStructure = !!(parsedDatasheet?.associatedSaaS || parsedDatasheet?.capacity || parsedDatasheet?.maxPower);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 bg-bg p-2">
       {/* Render based on structure type */}
       {hasCustomStructure && (
         renderCustomStructure(parsedDatasheet, expandedSections, toggleSection)
@@ -84,11 +84,10 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
       {(data.associatedSaaS || data.url) && (
         <Section
           title="Información de la API"
-          icon={<FileText size={18} />}
           isOpen={expandedSections.info}
           onToggle={() => toggleSection('info')}
         >
-          <div className="space-y-3">
+          <BaseCard className="space-y-3">
             {data.associatedSaaS && <InfoRow label="SaaS Asociado" value={data.associatedSaaS} />}
             {data.url && (
               <InfoRow
@@ -102,7 +101,7 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
             )}
             {data.planReference && <InfoRow label="Plan de Referencia" value={data.planReference} />}
             {data.type && <InfoRow label="Tipo de API" value={data.type} />}
-          </div>
+          </BaseCard>
         </Section>
       )}
 
@@ -110,7 +109,6 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
       {data.capacity && (
         <Section
           title="Capacidad y Cuota"
-          icon={<Zap size={18} />}
           isOpen={expandedSections.capacity}
           onToggle={() => toggleSection('capacity')}
         >
@@ -135,7 +133,6 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
       {data.maxPower && (
         <Section
           title="Límite de Velocidad (Rate Limit)"
-          icon={<Clock size={18} />}
           isOpen={expandedSections.rateLimit}
           onToggle={() => toggleSection('rateLimit')}
         >
@@ -157,7 +154,6 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
       {data.coolingPeriod && (
         <Section
           title="Período de Enfriamiento"
-          icon={<Clock size={18} />}
           isOpen={expandedSections.coolingPeriod}
           onToggle={() => toggleSection('coolingPeriod')}
         >
@@ -171,7 +167,6 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
       {data.segmentation && (
         <Section
           title="Segmentación"
-          icon={<Shield size={18} />}
           isOpen={expandedSections.segmentation}
           onToggle={() => toggleSection('segmentation')}
         >
@@ -373,10 +368,10 @@ function RawDataSection({ data, isOpen, onToggle }) {
 
 function Section({ title, icon, isOpen, onToggle, children }) {
   return (
-    <BaseCard className="p-4">
+    <BaseCard className='p-2'>
       <button
         onClick={onToggle}
-        className="expandible-header w-full gap-3"
+        className="expandible-header"
       >
         <div className="text-accent">{icon}</div>
         <h3 className="text-lg font-bold text-text flex-1">{title}</h3>
@@ -387,7 +382,7 @@ function Section({ title, icon, isOpen, onToggle, children }) {
         )}
       </button>
 
-      {isOpen && <div className="mt-4 pt-4 border-t border-accent">{children}</div>}
+      {isOpen && <div className="mt-2 pt-2 border-t border-border">{children}</div>}
     </BaseCard>
   );
 }

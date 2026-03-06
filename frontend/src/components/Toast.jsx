@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Info, MessageCircleWarning, X } from 'lucide-react';
+import {CircleX, CircleCheck, CircleAlert, Info} from 'lucide-react';
 import React, { useEffect } from 'react';
 
 export default function Toast({ id, message, type = 'info', onDismiss, duration = 3000 }) {
@@ -10,10 +10,10 @@ export default function Toast({ id, message, type = 'info', onDismiss, duration 
   }, [duration, onDismiss]);
 
   const iconEmoji = {
-    success: <Check size={16} />,
-    error: <X size={16} />,
-    warning: <CircleAlert size={16} />,
-    info: <Info size={16} />,
+    success: <CircleCheck size={24} />,
+    error: <CircleX size={24} />,
+    warning: <CircleAlert size={24} />,
+    info: <Info size={24} />,
   }[type];
 
   return (

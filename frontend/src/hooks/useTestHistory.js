@@ -2,6 +2,27 @@ import { useState, useCallback, useEffect } from 'react';
 
 const STORAGE_KEY = 'test-history-data';
 const MAX_STORED_TESTS = 100;
+const MAX_RESULTS_PER_TEST = 5000;
+
+function sanitizeResultForStorage(result) {
+  if (!result || typeof result !== 'object') return null;
+
+  return {
+    timestamp: result.timestamp,
+    status: result.status,
+    statusCode: result.statusCode,
+    durationMs: result.durationMs,
+    retryAfter: result.retryAfter,
+    rateLimit: result.rateLimit
+      ? {
+          detected: Boolean(result.rateLimit.detected),
+          retryAfter: result.rateLimit.retryAfter,
+          window: result.rateLimit.window,
+          limit: result.rateLimit.limit,
+        }
+      : null,
+  };
+}
 
 /**
  * Custom hook to manage test history with localStorage persistence
@@ -98,10 +119,20 @@ export function useTestHistory(templateId) {
    * @param {object} testData - { jobId, timestamp, results, summary }
    */
   const addTestResult = useCallback((testData) => {
+    const compactResults = Array.isArray(testData?.results)
+      ? testData.results
+          .slice(0, MAX_RESULTS_PER_TEST)
+          .map(sanitizeResultForStorage)
+          .filter(Boolean)
+      : [];
+
     setHistory((prev) => {
       const updated = [
         {
-          ...testData,
+          jobId: testData?.jobId,
+          timestamp: testData?.timestamp,
+          summary: testData?.summary || {},
+          results: compactResults,
           storedAt: new Date().toISOString(),
         },
         ...prev,
