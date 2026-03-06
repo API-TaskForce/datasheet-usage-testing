@@ -133,7 +133,7 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
             </div>
 
             {requiresAuth && (
-              <div className="flex flex-col md:flex-row gap-6 p-2 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="card-section flex flex-col md:flex-row gap-6">
                 <div className="form-group flex-1">
                   <label className="form-label muted">Authentication Method</label>
                   <select

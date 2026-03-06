@@ -35,7 +35,7 @@ export default function TemplateList({
             <div className="flex items-start justify-between mb-3 border-b border-red-500 p-3">
               <div className="flex flex-row items-center justify-between mb-3 gap-4">
                 <h3 className="font-bold text-lg">{t.name}</h3>
-                <p className="flex text-sm text-gray-600 bg-gray-100 p-2 rounded-xl text-center">
+                <p className="badge badge-secondary">
                   {t.apiUri}
                 </p>
               </div>

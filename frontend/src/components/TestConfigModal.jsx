@@ -164,13 +164,13 @@ export default function TestConfigModal({ template, onClose }) {
                   {configs.map((c) => (
                     <div
                       key={c.id}
-                      className="bg-white p-4 rounded-xl border border-border shadow-sm hover:shadow-md transition-all group"
+                      className="card-section shadow-sm hover:shadow-md transition-all group"
                     >
                       <div className="flex justify-between items-start">
                         <div>
                           <h3 className="font-bold text-text">{c.testName}</h3>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-bg text-text font-black uppercase">
+                            <span className="badge badge-secondary text-[10px] px-2 py-0.5 rounded-full bg-bg font-black uppercase">
                               {c.method}
                             </span>
                             <span className="text-xs text-text font-mono">{c.path}</span>
@@ -211,7 +211,7 @@ export default function TestConfigModal({ template, onClose }) {
           ) : (
             <form
               onSubmit={handleSubmit}
-              className="bg-white p-6 rounded-2xl border border-border space-y-6"
+              className="card-section rounded-2xl space-y-6"
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-text">

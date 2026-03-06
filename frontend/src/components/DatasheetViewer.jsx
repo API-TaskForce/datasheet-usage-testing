@@ -117,7 +117,7 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
           <div className="space-y-2">
             {Array.isArray(data.capacity)
               ? data.capacity.map((item, idx) => (
-                  <div key={idx} className="bg-primary rounded-lg p-3 text-sm border border-border">
+                  <div key={idx} className="card-section text-sm">
                     {item.type && <div className="font-bold text-text mb-1">{item.type}</div>}
                     {item.value && <p className="text-text">{item.value}</p>}
                     {item.windowType && <p className="text-xs text-muted mt-1">Período: {item.windowType}</p>}
@@ -139,7 +139,7 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
           isOpen={expandedSections.rateLimit}
           onToggle={() => toggleSection('rateLimit')}
         >
-          <div className="space-y-3 bg-primary rounded-lg p-3 border border-border">
+          <div className="card-section space-y-3">
             {typeof data.maxPower === 'object' ? (
               <>
                 {data.maxPower.value && <InfoRow label="Límite" value={data.maxPower.value} highlight />}
@@ -161,7 +161,7 @@ function renderCustomStructure(data, expandedSections, toggleSection) {
           isOpen={expandedSections.coolingPeriod}
           onToggle={() => toggleSection('coolingPeriod')}
         >
-          <div className="bg-primary rounded-lg p-3 border border-border">
+          <div className="card-section">
             <InfoRow label="Cooling Period" value={data.coolingPeriod} />
           </div>
         </Section>
@@ -376,7 +376,7 @@ function Section({ title, icon, isOpen, onToggle, children }) {
     <BaseCard className="p-4">
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-3 text-left hover:opacity-80 transition-opacity"
+        className="expandible-header w-full gap-3"
       >
         <div className="text-accent">{icon}</div>
         <h3 className="text-lg font-bold text-text flex-1">{title}</h3>
@@ -387,7 +387,7 @@ function Section({ title, icon, isOpen, onToggle, children }) {
         )}
       </button>
 
-      {isOpen && <div className="mt-4 pt-4 border-t border-slate-600">{children}</div>}
+      {isOpen && <div className="mt-4 pt-4 border-t border-accent">{children}</div>}
     </BaseCard>
   );
 }

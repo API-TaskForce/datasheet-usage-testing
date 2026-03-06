@@ -4,6 +4,8 @@ import {
   getTest,
   getAllTestsController,
   getActiveJobController,
+  deleteTestController,
+  deleteAllTestsController,
 } from '../controllers/testsController.js';
 import {
   createTemplate,
@@ -112,6 +114,16 @@ router.delete('/:id', (req, res) => {
     deleteConfig(req, res);
   } else if (req.routeType === 'templates') {
     deleteTemplate(req, res);
+  } else if (req.routeType === 'tests') {
+    deleteTestController(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
+router.delete('/', (req, res) => {
+  if (req.routeType === 'tests') {
+    deleteAllTestsController(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }

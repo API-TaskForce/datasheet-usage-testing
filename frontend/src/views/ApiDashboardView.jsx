@@ -500,7 +500,7 @@ export default function ApiDashboardView({ template }) {
                 <p className="text-slate-400 text-center">Cargando datasheet...</p>
               </BaseCard>
             ) : !datasheet ? (
-              <BaseCard className="p-6 border border-yellow-500/20 bg-yellow-500/5">
+              <BaseCard className="alert alert-warning">
                 <div className="flex gap-3">
                   <AlertCircle className="text-yellow-500 flex-shrink-0" size={20} />
                   <div>
@@ -523,7 +523,7 @@ export default function ApiDashboardView({ template }) {
 
       {/* Stats Section */}
       <div className="w-full p-6 container-max-width mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="stats-grid mb-6">
           <StatCard
             title="Total Requests"
             value={getCurrentStats().total}
@@ -584,7 +584,7 @@ export default function ApiDashboardView({ template }) {
               </div>
             )}
           </div>
-          <div className="flex justify-center overflow-hidden rounded-xl p-4">
+          <div className="chart-container">
             {chartData?.[0]?.length > 0 ? (
               <UPlotChart options={mainChartOpts} data={chartData} />
             ) : (
@@ -627,7 +627,7 @@ export default function ApiDashboardView({ template }) {
               </div>
             </div>
 
-            <div className="w-full bg-primary border border-accent rounded-xl p-3">
+            <div className="limits-panel">
               <h5 className="text-sm font-bold text-text mb-2">Applied Limits</h5>
               <div className="grid grid-cols-1 gap-2 text-sm">
                 <div className="flex items-center justify-between gap-2">
@@ -660,7 +660,7 @@ export default function ApiDashboardView({ template }) {
         </BaseCard>
       </div>
 
-      <div className="container-max-width mx-auto my-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="container-max-width mx-auto my-6 grid-2col">
         <BaseCard>
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-lg font-bold mb-0">Histórico de Peticiones</h3>
@@ -862,7 +862,7 @@ export default function ApiDashboardView({ template }) {
 
 function StatCard({ title, value, icon, color }) {
   return (
-    <div className="p-4 bg-primary rounded-xl border border-accent flex items-center gap-4">
+    <div className="stat-card flex items-center gap-4">
       <div className={'badge badge-accent'}>{icon}</div>
       <div>
         <p className="text-secondary">{title}</p>
@@ -882,7 +882,7 @@ function ProgressBar({ label, current, max, unit, color }) {
           {current} / {max} {unit}
         </span>
       </div>
-      <div className="h-4 bg-primary rounded-full overflow-hidden border border-secondary-lighter">
+      <div className="progress-bar">
         <div
           className={`h-full transition-all duration-500 ease-out ${color}`}
           style={{ width: `${percentage}%` }}

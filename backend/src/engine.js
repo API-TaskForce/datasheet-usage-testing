@@ -1,6 +1,6 @@
 import { request as httpRequest } from './lib/httpClient.js';
 import { createJob, updateJob, getJob, listJobs } from './db.js';
-import { makeId } from './lib/utils.js';
+import { makeId, detectRateLimitInfo } from './lib/utils.js';
 import { error as logError, success as logSuccess } from './lib/log.js';
 import { engineRequestsCounter, engineRequestDurationHistogram } from './lib/metrics.js';
 // Limite para el tamaño del body capturado (100 KB)
@@ -127,16 +127,18 @@ async function executeWorker({ id, quota, config, state }) {
     engineRequestsCounter.inc({ jobId: id, status_type: statusType });
     engineRequestDurationHistogram.observe({ jobId: id, status_type: statusType }, elapsed / 1000);
 
-    // Extracción de retry-after
-    let retryAfter = null;
-    if (response && response.headers) {
+    // Detectar información de rate limiting de los headers
+    const rateLimitInfo = detectRateLimitInfo(response?.headers, statusCode);
+
+    // Extracción de retry-after (mantenido por compatibilidad)
+    let retryAfter = rateLimitInfo.retryAfter || null;
+    if (!retryAfter && response && response.headers) {
       if (typeof response.headers.get === 'function') {
-        // Caso AxiosHeaders
         retryAfter = response.headers.get('retry-after');
       } else {
-        // Caso objeto plano (fallback)
         retryAfter = response.headers['retry-after'] || response.headers['Retry-After'];
       }
+      if (retryAfter) retryAfter = String(retryAfter);
     }
 
     // Construir resultado con trazas completas
@@ -179,6 +181,9 @@ async function executeWorker({ id, quota, config, state }) {
             errorType: error.name,
           }
         : null,
+
+      // Información de rate limiting detectada
+      rateLimit: rateLimitInfo.detected ? rateLimitInfo : null,
     };
 
     // Guardamos en el array compartido

@@ -254,6 +254,32 @@ export async function getTestLogs() {
   }
 }
 
+/**
+ * Delete a single test log
+ * @param {string} id - Test log ID
+ */
+export async function deleteTestLog(id) {
+  try {
+    await instance.delete(`/tests/${id}`);
+  } catch (err) {
+    console.error('[deleteTestLog] Error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete all test logs
+ */
+export async function deleteAllTestLogs() {
+  try {
+    const response = await instance.delete('/tests');
+    return response.data;
+  } catch (err) {
+    console.error('[deleteAllTestLogs] Error:', err);
+    throw err;
+  }
+}
+
 // =============== TEST CONFIGURATIONS ===============
 
 /**

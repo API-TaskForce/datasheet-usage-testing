@@ -14,13 +14,14 @@ export default function BaseButton({
     danger: 'btn-danger',
     success: 'btn-success',
     ghost: 'btn-ghost',
+    icon: 'btn-icon'
   }[variant] || 'bg-blue-600 text-white'
 
   const sizeClass = {
-    sm: 'px-2 py-1 text-sm',
-    md: 'px-4 py-2 text-base',
-    lg: 'px-5 py-3 text-lg',
-    icon: 'p-8'
+    sm: 'px-4 py-1 text-sm',
+    md: 'px-8 py-2 text-base',
+    lg: 'px-10 py-3 text-lg',
+    icon: 'p-2 w-fit'
   }[size] || 'px-4 py-2 text-base'
 
   return (
