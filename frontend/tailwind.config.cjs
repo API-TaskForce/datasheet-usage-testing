@@ -29,7 +29,7 @@ module.exports = {
           DEFAULT: '#007c35',
           light: '#4ade80',
         },
-        warning: '#c78100',
+        warning: '#ff8615',
         error: '#be1d37',
         info: '#5f92c5',
         // Background colors

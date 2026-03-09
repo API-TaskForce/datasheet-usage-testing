@@ -54,9 +54,9 @@ export default function TemplatesPage({ onSelectTemplate }) {
   }, []);
 
   return (
-    <div style={{ minHeight: '100vh', width: '100%', paddingTop: '2rem' }}>
+    <div>
       <div className="w-full p-6 container-max-width mx-auto">
-        {loading && <p className="text-lg p-6">Loading templates...</p>}
+        {loading && <p className="text-lg p-6">Loading your APIs...</p>}
         {error && <div className="alert alert-error m-6">Error: {error}</div>}
 
         <TemplateList

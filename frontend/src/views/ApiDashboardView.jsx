@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import uPlot from 'uplot';
 import UPlotChart from '../components/UPlotChart.jsx';
 import TemplateTestView from '../components/TemplateTestView.jsx';
 import TemplateForm from '../components/TemplateForm.jsx';
@@ -8,6 +9,11 @@ import StorageInfoPanel from '../components/StorageInfoPanel.jsx';
 import ApiDashboardActionBar from '../components/dashboard/ApiDashboardActionBar.jsx';
 import ApiDashboardTabs from '../components/dashboard/ApiDashboardTabs.jsx';
 import { RealTimePanel, SimpleRealTimePanel } from '../components/dashboard/RealtimePanels.jsx';
+import StatCard from '../components/dashboard/StatCard.jsx';
+import ProgressBar from '../components/dashboard/ProgressBar.jsx';
+import DonutChart from '../components/dashboard/DonutChart.jsx';
+import { OpportunityPanel, OpportunityPanelHistorical } from '../components/dashboard/OpportunityPanels.jsx';
+import AutoRefreshSelector from '../components/dashboard/AutoRefreshSelector.jsx';
 import {
   getActiveJobResults,
   testApi,
@@ -268,6 +274,11 @@ export default function ApiDashboardView({ template }) {
     source: 'fallback',
   });
 
+  // Auto-refresh states
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(60);
+  const autoRefreshInterval = useRef(null);
+
   // Test history management
   const {
     history,
@@ -304,6 +315,16 @@ export default function ApiDashboardView({ template }) {
 
   const pollInterval = useRef(null);
 
+  // Auto-refresh: toggle on/off
+  const handleAutoRefreshToggle = () => {
+    setAutoRefreshEnabled((prev) => !prev);
+  };
+
+  // Auto-refresh: change interval
+  const handleRefreshIntervalChange = (newInterval) => {
+    setRefreshIntervalSeconds(newInterval);
+  };
+
   const buildHeadersFromTemplate = () => {
     const hdrs = { 'Content-Type': 'application/json' };
     if (!template) return hdrs;
@@ -325,7 +346,17 @@ export default function ApiDashboardView({ template }) {
     if (!base) return path;
     if (/^https?:\/\//i.test(path)) return path;
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    return `${base.replace(/\/$/, '')}${normalizedPath}`;
+
+    const queryParams = Array.isArray(config?.queryParams)
+      ? config.queryParams
+          .filter((q) => q && String(q.key || '').trim() !== '')
+          .map((q) =>
+            `${encodeURIComponent(String(q.key).trim())}=${encodeURIComponent(String(q.value || '').trim())}`
+          )
+      : [];
+    const query = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+
+    return `${base.replace(/\/$/, '')}${normalizedPath}${query}`;
   };
 
   const buildSummaryFromResults = (results) => {
@@ -447,7 +478,16 @@ export default function ApiDashboardView({ template }) {
 
   const executeDefaultConfigTest = async (config) => {
     const endpoint = buildEndpointFromConfig(config);
-    const headers = buildHeadersFromTemplate();
+    const templateHeaders = buildHeadersFromTemplate();
+    const customHeaders = Array.isArray(config?.headers)
+      ? config.headers.reduce((acc, h) => {
+          const key = String(h?.key || '').trim();
+          if (!key) return acc;
+          acc[key] = String(h?.value || '');
+          return acc;
+        }, {})
+      : {};
+    const headers = { ...templateHeaders, ...customHeaders };
 
     let parsedBody = null;
     if (config?.body && String(config.body).trim()) {
@@ -504,7 +544,48 @@ export default function ApiDashboardView({ template }) {
     }
   };
 
-  // Triggered when the user hits "Run" inside the Modal
+  const handleModalConfigChange = useCallback(
+    (config) => {
+      if (!config || typeof config !== 'object') return;
+
+      setDefaultTestConfig((prev) => {
+        const next = {
+          ...(prev || {}),
+          ...config,
+          method: config.method || prev?.method || template?.requestMethod || 'GET',
+          path: config.path || prev?.path || '/',
+          clients: Math.max(1, parseInt(config.clients || prev?.clients || 1, 10)),
+          totalRequests: Math.max(
+            1,
+            parseInt(config.totalRequests || prev?.totalRequests || 1, 10)
+          ),
+          timeoutMs: Math.max(1000, parseInt(config.timeoutMs || prev?.timeoutMs || 5000, 10)),
+          testName: prev?.testName || 'Configuracion manual',
+        };
+
+        const sameScalarFields =
+          prev?.method === next.method &&
+          prev?.path === next.path &&
+          prev?.clients === next.clients &&
+          prev?.totalRequests === next.totalRequests &&
+          prev?.timeoutMs === next.timeoutMs &&
+          prev?.body === next.body;
+
+        const sameHeaders = JSON.stringify(prev?.headers || []) === JSON.stringify(next.headers || []);
+        const sameQueryParams =
+          JSON.stringify(prev?.queryParams || []) === JSON.stringify(next.queryParams || []);
+
+        if (sameScalarFields && sameHeaders && sameQueryParams) {
+          return prev;
+        }
+
+        return next;
+      });
+    },
+    [template?.requestMethod]
+  );
+
+  // Triggered when a test job starts
   const handleTestStarted = (jobId) => {
     setShowModal(false);
     setRunning(true);
@@ -650,20 +731,6 @@ export default function ApiDashboardView({ template }) {
       cumulativeCounts: cumulativeData.cumulativeCounts || [],
     };
   }, [granularity, getCumulativeOverTime, history]);
-
-  /**
-   * Get aggregated data for historical charts
-   */
-  const getAggregatedChartData = useMemo(() => {
-    const aggregated = aggregateByGranularity(granularity);
-    return {
-      timestamps: aggregated.timestamps || [],
-      success: aggregated.successCounts || [],
-      errors: aggregated.errorCounts || [],
-      rateLimited: aggregated.rateLimitCounts || [],
-      total: aggregated.totalCounts || [],
-    };
-  }, [granularity, aggregateByGranularity, history]);
 
   const cooldownSpans = useMemo(
     () =>
@@ -833,6 +900,73 @@ export default function ApiDashboardView({ template }) {
   }, [template?.id]);
 
   /**
+   * Auto-refresh: Execute tests automatically at specified intervals
+   */
+  useEffect(() => {
+    // Clear any existing interval
+    if (autoRefreshInterval.current) {
+      clearInterval(autoRefreshInterval.current);
+      autoRefreshInterval.current = null;
+    }
+
+    // Only start auto-refresh if enabled
+    if (!autoRefreshEnabled) {
+      return;
+    }
+
+    console.log(`[Auto-refresh] Starting with interval: ${refreshIntervalSeconds}s`);
+
+    // Function to execute test - wrapped to avoid stale closures
+    const executeTest = async () => {
+      // Only execute if not currently running and we have a template
+      if (!template?.id) {
+        console.log('[Auto-refresh] No template available');
+        return;
+      }
+
+      const fallbackConfig = defaultTestConfig || {
+        method: template?.requestMethod || 'GET',
+        path: '/',
+        clients: 1,
+        totalRequests: 40,
+        timeoutMs: 5000,
+        body: '',
+      };
+
+      try {
+        if (testMode === 'simulated') {
+          runSimulatedTest(fallbackConfig);
+        } else if (defaultTestConfig) {
+          await executeDefaultConfigTest(defaultTestConfig);
+        } else {
+          console.log('[Auto-refresh] No default config available');
+        }
+      } catch (err) {
+        console.error('[Auto-refresh] Failed to execute test:', err);
+      }
+    };
+
+    // Execute immediately on enable
+    executeTest();
+
+    // Set up interval for automatic execution
+    autoRefreshInterval.current = setInterval(() => {
+      console.log('[Auto-refresh] Executing scheduled test...');
+      executeTest();
+    }, refreshIntervalSeconds * 1000);
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (autoRefreshInterval.current) {
+        console.log('[Auto-refresh] Cleaning up interval');
+        clearInterval(autoRefreshInterval.current);
+        autoRefreshInterval.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefreshEnabled, refreshIntervalSeconds]);
+
+  /**
    * Load datasheet for the template
    */
   useEffect(() => {
@@ -890,26 +1024,6 @@ export default function ApiDashboardView({ template }) {
     return [timeline, seriesData.success, seriesData.rateLimit, seriesData.error];
   }, [timeline, seriesData]);
 
-  const mainChartOpts = {
-    title: 'Requests per Second',
-    width: 800,
-    height: 300,
-    scales: {
-      x: {
-        auto: false,
-        range: [Math.min(...(chartData[0] || [0])), Math.max(...(chartData[0] || [0]))],
-      },
-      y: { auto: true, range: [0, null] },
-    },
-    axes: [{ label: 'Time' }, { label: 'Requests', side: 1 }],
-    series: [
-      { label: 'Time' },
-      { label: 'Success', stroke: '#10b981', width: 2, fill: 'rgba(16, 185, 129, 0.1)' },
-      { label: 'Rate Limited', stroke: '#f59e0b', width: 2, fill: 'rgba(245, 158, 11, 0.1)' },
-      { label: 'Error', stroke: '#ef4444', width: 2, fill: 'rgba(239, 68, 68, 0.1)' },
-    ],
-  };
-
   const historicalInstantOpts = {
     title: 'Historico + Peticiones en el Instante',
     width: 850,
@@ -935,10 +1049,15 @@ export default function ApiDashboardView({ template }) {
       { label: 'Tiempo' },
       { label: 'Acumulado', stroke: '#0284c7', width: 3, fill: 'rgba(2,132,199,0.08)' },
       {
-        label: 'Request Instantaneo',
+        label: 'Request Instantaneo (barras)',
         stroke: '#059669',
-        width: 2,
-        points: { show: true, size: 5 },
+        fill: 'rgba(5, 150, 105, 0.35)',
+        width: 1,
+        points: { show: false },
+        paths: uPlot.paths.bars({
+          size: [0.65, 80],
+          align: 1,
+        }),
       },
       {
         label: 'Cooldown 4XX',
@@ -1063,6 +1182,16 @@ export default function ApiDashboardView({ template }) {
                 : 'no configurado'}
           </span>
         </div>
+
+        <div className="flex flex-wrap gap-3 items-center mb-4">
+          <AutoRefreshSelector
+            enabled={autoRefreshEnabled}
+            interval={refreshIntervalSeconds}
+            onToggle={handleAutoRefreshToggle}
+            onIntervalChange={handleRefreshIntervalChange}
+            disabled={loadingDefaultConfig}
+          />
+        </div>
       </div>
 
       {showDatasheet && (
@@ -1142,7 +1271,7 @@ export default function ApiDashboardView({ template }) {
             <BaseCard className="w-full h-full p-4">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold">
-                  Historico de peticiones + Peticiones en el instante
+                  Peticiones Realizadas
                 </h3>
                 <GranularitySelector value={granularity} onChange={setGranularity} />
               </div>
@@ -1162,8 +1291,8 @@ export default function ApiDashboardView({ template }) {
               </div>
             </BaseCard>
 
-            <BaseCard className="p-8 gap-4 h-full">
-              <h3 className="text-lg font-bold text-text text-center">API Limits & Quota</h3>
+            <BaseCard className="gap-2 h-full">
+              <h3 className="text-lg font-bold text-text text-center mb-2">API Limits & Quota</h3>
               <ProgressBar
                 label="Request Quota Usage"
                 current={summary?.total || liveResults.length}
@@ -1333,14 +1462,15 @@ export default function ApiDashboardView({ template }) {
       )}
 
       {showModal && (
-        <div className="modal-overlay z-50">
-          <div className="modal-panel max-w-6xl">
+        <div className="fixed right-4 top-24 z-50 w-[min(96vw,820px)] bg-primary">
+          <BaseCard className="max-h-[78vh] overflow-auto border border-border shadow-lg p-2">
             <TemplateTestView
               template={template}
               OnClose={() => setShowModal(false)}
-              onTestStarted={handleTestStarted}
+              initialConfig={defaultTestConfig}
+              onConfigChange={handleModalConfigChange}
             />
-          </div>
+          </BaseCard>
         </div>
       )}
 
@@ -1381,295 +1511,5 @@ export default function ApiDashboardView({ template }) {
         </div>
       )}
     </>
-  );
-}
-
-function StatCard({ title, value, icon, color }) {
-  return (
-    <div className="stat-card flex items-center gap-4">
-      <div className={'badge badge-accent'}>{icon}</div>
-      <div>
-        <p className="text-secondary">{title}</p>
-        <p className={`font-black ${color}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function ProgressBar({ label, current, max, unit, color }) {
-  const percentage = Math.min((current / max) * 100, 100);
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-row align-center justify-between items-center text-sm gap-4">
-        <span className="text-xs">{label}</span>
-        <span className="text-xs text-text-muted">
-          {current} / {max} {unit}
-        </span>
-      </div>
-      <div className="progress-bar">
-        <div
-          className={`h-full transition-all duration-500 ease-out ${color}`}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function DonutChart({ label, value, max }) {
-  const pct = Math.min(max > 0 ? (value / max) * 100 : 0, 100);
-  const radius = 48;
-  const stroke = 12;
-  const normalizedRadius = radius - stroke * 0.5;
-  const circumference = normalizedRadius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (pct / 100) * circumference;
-
-  return (
-    <div className="flex items-center gap-4">
-      <svg height={radius * 2} width={radius * 2} className="rounded-full bg-transparent">
-        <circle
-          stroke="#e6eef6"
-          fill="transparent"
-          strokeWidth={stroke}
-          r={normalizedRadius}
-          cx={radius}
-          cy={radius}
-        />
-        <circle
-          stroke="#06b6d4"
-          fill="transparent"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          r={normalizedRadius}
-          cx={radius}
-          cy={radius}
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={strokeDashoffset}
-          transform={`rotate(-90 ${radius} ${radius})`}
-        />
-      </svg>
-      <div>
-        <p className="text-xs text-slate-400">{label}</p>
-        <p className="font-black text-text">
-          {value} / {max}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function OpportunityPanelHistorical({ opportunityData, apiLimits, granularity }) {
-  if (!opportunityData.timestamps || opportunityData.timestamps.length === 0) {
-    return (
-      <p className="text-sm text-slate-400">
-        No hay datos para mostrar. Ejecuta un test para comenzar.
-      </p>
-    );
-  }
-
-  const limitLine = apiLimits.quotaDaily || null;
-  const maxCumulative = Math.max(...opportunityData.cumulativeCounts, 0);
-
-  // Convert timestamps to Unix seconds for uPlot
-  const timestampsInSeconds = opportunityData.timestamps.map((ts) => {
-    // Check if timestamp is in milliseconds or seconds
-    return ts > 10000000000 ? Math.floor(ts / 1000) : ts;
-  });
-
-  console.log('[OpportunityPanelHistorical] Data:', {
-    dataPoints: timestampsInSeconds.length,
-    firstTimestamp: new Date(timestampsInSeconds[0] * 1000).toISOString(),
-    lastTimestamp: new Date(
-      timestampsInSeconds[timestampsInSeconds.length - 1] * 1000
-    ).toISOString(),
-    maxCumulative,
-    limitLine,
-  });
-
-  const opportunityChartOpts = {
-    title: 'Peticiones Acumuladas Over Time',
-    width: 850,
-    height: 300,
-    scales: {
-      x: {
-        auto: false,
-        range: [Math.min(...timestampsInSeconds), Math.max(...timestampsInSeconds)],
-      },
-      y: {
-        auto: false,
-        range: [
-          0,
-          limitLine ? Math.max(limitLine * 1.2, maxCumulative * 1.1) : maxCumulative * 1.2,
-        ],
-      },
-    },
-    axes: [
-      {
-        label: 'Tiempo',
-        values: (u, vals) =>
-          vals.map((v) => {
-            const date = new Date(v * 1000);
-            if (granularity === '1d') {
-              return date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
-            } else if (granularity === '1h' || granularity === '6h') {
-              return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-            } else {
-              return date.toLocaleTimeString('es-ES', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-              });
-            }
-          }),
-      },
-      {
-        label: 'Peticiones Acumuladas',
-        side: 1,
-        values: (u, vals) => vals.map((v) => Math.round(v).toLocaleString()),
-      },
-    ],
-    series: [
-      { label: 'Tiempo' },
-      {
-        label: 'Peticiones',
-        stroke: '#06b6d4',
-        fill: 'rgba(6,179,212,0.15)',
-        width: 3,
-        points: {
-          show: true,
-          size: 6,
-          width: 2,
-          stroke: '#06b6d4',
-          fill: '#ffffff',
-        },
-      },
-      ...(limitLine
-        ? [
-            {
-              label: `Límite (${limitLine})`,
-              stroke: '#ef4444',
-              width: 2,
-              dash: [10, 5],
-              points: { show: false },
-            },
-          ]
-        : []),
-    ],
-  };
-
-  // Build data array with converted timestamps
-  const data = [timestampsInSeconds, opportunityData.cumulativeCounts];
-  if (limitLine) {
-    const limitPoints = timestampsInSeconds.map(() => limitLine);
-    data.push(limitPoints);
-  }
-
-  return (
-    <div className="w-full">
-      <UPlotChart options={opportunityChartOpts} data={data} />
-      {limitLine && (
-        <div className="mt-4 text-xs text-slate-400">
-          <p>
-            Límite identificado:{' '}
-            <span className="font-bold text-text">{limitLine.toLocaleString()} peticiones</span>
-          </p>
-          <p>
-            Granularidad: <span className="font-mono">{granularity}</span> | Total acumulado:{' '}
-            <span className="font-bold text-cyan-400">{maxCumulative.toLocaleString()}</span>
-          </p>
-        </div>
-      )}
-      {!limitLine && (
-        <div className="mt-4 text-xs text-slate-400">
-          <p>
-            Granularidad: <span className="font-mono">{granularity}</span> | Total acumulado:{' '}
-            <span className="font-bold text-cyan-400">{maxCumulative.toLocaleString()}</span>
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OpportunityPanel({ liveResults, apiLimits, running }) {
-  if (!liveResults || liveResults.length === 0) {
-    return <p className="text-sm text-slate-400">No hay datos para mostrar.</p>;
-  }
-
-  // Extract timestamps and build cumulative requests over time
-  const startTime = new Date(liveResults[0].timestamp).getTime();
-  let cumulativeCount = 0;
-  const timePoints = [];
-  const requestPoints = [];
-
-  liveResults.forEach((r) => {
-    const resultTime = new Date(r.timestamp).getTime();
-    const secondsElapsed = Math.floor((resultTime - startTime) / 1000);
-    cumulativeCount++;
-    timePoints.push(secondsElapsed);
-    requestPoints.push(cumulativeCount);
-  });
-
-  // Add limit line if available
-  const limitLine = apiLimits.quotaDaily || null;
-
-  const opportunityChartOpts = {
-    title: 'Cumulative Requests Over Time',
-    width: '100%',
-    height: 300,
-    scales: {
-      x: { auto: true },
-      y: {
-        auto: false,
-        range: [
-          0,
-          limitLine
-            ? Math.max(limitLine * 1.2, Math.max(...requestPoints))
-            : Math.max(...requestPoints),
-        ],
-      },
-    },
-    axes: [{ label: 'Time (seconds)' }, { label: 'Cumulative Requests', side: 1 }],
-    series: [
-      { label: 'Time (s)' },
-      {
-        label: 'Requests',
-        stroke: '#06b6d4',
-        fill: 'rgba(6,179,212,0.1)',
-        width: 2,
-      },
-      ...(limitLine
-        ? [
-            {
-              label: `Daily Limit (${limitLine})`,
-              stroke: '#ef4444',
-              width: 2,
-              dash: [5, 5],
-            },
-          ]
-        : []),
-    ],
-  };
-
-  // Build data array: [times, requests, limitLine if exists]
-  const data = [timePoints, requestPoints];
-  if (limitLine) {
-    // Add a plateau line at the limit
-    const limitPoints = timePoints.map(() => limitLine);
-    data.push(limitPoints);
-  }
-
-  return (
-    <div className="w-full">
-      <UPlotChart options={opportunityChartOpts} data={data} />
-      {limitLine && (
-        <div className="mt-4 text-xs text-slate-400">
-          <p>
-            Límite diario identificado:{' '}
-            <span className="font-bold text-text">{limitLine} peticiones</span>
-          </p>
-        </div>
-      )}
-    </div>
   );
 }

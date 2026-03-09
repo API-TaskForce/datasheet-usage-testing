@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { testApi, getTestConfigs } from '../services/apiTemplateService.js';
+import React, { useState, useEffect, useRef } from 'react';
+import { getTestConfigs } from '../services/apiTemplateService.js';
 import BaseButton from './BaseButton.jsx';
-import { Undo, Play, Square, X } from 'lucide-react';
+import { Undo, X } from 'lucide-react';
 import BaseCard from './BaseCard.jsx';
+import { useToast } from '../stores/toastStore.jsx';
 
-export default function TemplateTestView({ template, OnClose, onTestStarted }) {
+export default function TemplateTestView({ template, OnClose, onConfigChange, initialConfig = null }) {
+  const toast = useToast();
+  const hasHydratedInitialConfig = useRef(false);
   const [method, setMethod] = useState('GET');
   const [path, setPath] = useState('/');
   const [queryParams, setQueryParams] = useState([]);
@@ -24,18 +27,48 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
   const [timeoutMs, setTimeoutMs] = useState(5000);
 
   useEffect(() => {
+    hasHydratedInitialConfig.current = false;
+  }, [template?.id]);
+
+  useEffect(() => {
+    if (!initialConfig || hasHydratedInitialConfig.current) return;
+
+    setMethod(initialConfig.method || 'GET');
+    setPath(initialConfig.path || '/');
+    setClients(Math.max(1, parseInt(initialConfig.clients || 1, 10)));
+    setTotalRequests(Math.max(1, parseInt(initialConfig.totalRequests || 1, 10)));
+    setTimeoutMs(Math.max(1000, parseInt(initialConfig.timeoutMs || 5000, 10)));
+    setBody(initialConfig.body || '');
+    setQueryParams(Array.isArray(initialConfig.queryParams) ? initialConfig.queryParams : []);
+    setHeaders(Array.isArray(initialConfig.headers) ? initialConfig.headers : []);
+    hasHydratedInitialConfig.current = true;
+  }, [initialConfig]);
+
+  useEffect(() => {
     // prepare auth header
-    const h = [];
+    const authHeaders = [];
     if (template) {
       if (template.authMethod === 'API_TOKEN' || template.authMethod === 'BEARER')
-        h.push({ key: 'Authorization', value: `Bearer ${template.authCredential}` });
+        authHeaders.push({ key: 'Authorization', value: `Bearer ${template.authCredential}` });
       else if (template.authMethod === 'BASIC_AUTH')
-        h.push({ key: 'Authorization', value: `Basic ${template.authCredential}` });
+        authHeaders.push({ key: 'Authorization', value: `Basic ${template.authCredential}` });
       else if (template.authMethod === 'RAPID_API' || template.authMethod === 'RAPIDAPI')
-        h.push({ key: 'x-rapidapi-key', value: template.authCredential || '' });
+        authHeaders.push({ key: 'x-rapidapi-key', value: template.authCredential || '' });
     }
-    setHeaders(h);
+    setHeaders((prev) => {
+      const nonAuth = (prev || []).filter((item) => {
+        const k = String(item?.key || '').toLowerCase();
+        return k !== 'authorization' && k !== 'x-rapidapi-key';
+      });
+      const next = [...nonAuth, ...authHeaders];
+      if (JSON.stringify(prev || []) === JSON.stringify(next)) {
+        return prev;
+      }
+      return next;
+    });
+  }, [template?.authMethod, template?.authCredential]);
 
+  useEffect(() => {
     // Load predefined configs
     const loadConfigs = async () => {
       setLoadingConfigs(true);
@@ -45,12 +78,20 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
           return;
         }
         const data = await getTestConfigs(template.id);
-        const normalized = (data || []).map((cfg) => ({ ...cfg, isDefault: Boolean(cfg?.isDefault) }));
+        const normalized = (data || []).map((cfg) => ({
+          ...cfg,
+          isDefault: Boolean(cfg?.isDefault),
+        }));
         setPredefinedConfigs(normalized);
 
         const defaultConfig = normalized.find((cfg) => cfg.isDefault);
-        if (defaultConfig) {
-          applyPredefinedConfig(defaultConfig.id);
+        if (defaultConfig && !initialConfig) {
+          setMethod(defaultConfig.method);
+          setPath(defaultConfig.path);
+          setClients(defaultConfig.clients);
+          setTotalRequests(defaultConfig.totalRequests);
+          setTimeoutMs(defaultConfig.timeoutMs);
+          setBody(defaultConfig.body || '');
         }
       } catch (err) {
         console.error('Failed to load predefined configs');
@@ -59,7 +100,32 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
       }
     };
     loadConfigs();
-  }, [template]);
+  }, [template?.id]);
+
+  useEffect(() => {
+    if (!onConfigChange) return;
+
+    onConfigChange({
+      method,
+      path,
+      headers,
+      queryParams,
+      body,
+      clients: Math.max(1, parseInt(clients || 1, 10)),
+      totalRequests: Math.max(1, parseInt(totalRequests || 1, 10)),
+      timeoutMs: Math.max(1000, parseInt(timeoutMs || 5000, 10)),
+    });
+  }, [
+    method,
+    path,
+    headers,
+    queryParams,
+    body,
+    clients,
+    totalRequests,
+    timeoutMs,
+    onConfigChange,
+  ]);
 
   const applyPredefinedConfig = (configId) => {
     const config = predefinedConfigs.find((c) => c.id === configId);
@@ -90,148 +156,98 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
     }
   };
 
-  // Build full URL with query params
-  const buildFullUrl = () => {
-    const base = template.apiUri || '';
-    const p = path.startsWith('/') ? path : '/' + path;
-    let url = base.replace(/\/$/, '') + p;
-
-    const validParams = queryParams.filter((q) => q.key && q.value);
-    if (validParams.length > 0) {
-      const qs = validParams
-        .map((q) => `${encodeURIComponent(q.key)}=${encodeURIComponent(q.value)}`)
-        .join('&');
-      url += '?' + qs;
-    }
-
-    return url;
-  };
-
-  const runTest = async () => {
-    // Validate body if present
-    if (body && !validateBody(body)) {
-      return;
-    }
-
-    const url = buildFullUrl();
-    setIsLoading(true);
-
-    const hdrs = { 'Content-Type': 'application/json' };
-    headers.forEach((h) => {
-      if (h.key) hdrs[h.key] = h.value;
-    });
-
+  const handleFormatJSON = () => {
     try {
-      let bodyToSend = null;
-      if (body && body.trim()) {
-        try {
-          bodyToSend = JSON.parse(body);
-        } catch (e) {
-          bodyToSend = body;
-        }
+      if (!body || body.trim() === '') {
+        toast.info('No JSON content to format');
+        return;
       }
 
-      // Create test payload
-      const testConfig = {
-        endpoint: url,
-        request: {
-          method,
-          headers: hdrs,
-          body: bodyToSend,
-        },
-        clients: parseInt(clients) || 1,
-        totalRequests: parseInt(totalRequests) || 1,
-        timeoutMs: parseInt(timeoutMs) || 5000,
-      };
+      let jsonStr = body;
 
-      // Execute test via testApi
-      const { jobId } = await testApi(testConfig);
+      // Remove trailing commas before closing braces/brackets
+      jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
 
-      // Delegate monitoring to parent component (dashboard)
-      if (onTestStarted) {
-        onTestStarted(jobId);
-      }
+      // Fix unquoted object keys - comprehensive multi-pass approach
+      // Pass 1: Keys after { or , (handles most common cases)
+      jsonStr = jsonStr.replace(/([{,\n]\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/g, '$1"$2":');
+      
+      // Pass 2: Keys at start of document or after whitespace
+      jsonStr = jsonStr.replace(/^\s*([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/m, '"$1":');
+      
+      // Pass 3: Keys after opening bracket in array of objects
+      jsonStr = jsonStr.replace(/(\[\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/g, '$1"$2":');
+
+      const parsed = JSON.parse(jsonStr);
+      const formatted = JSON.stringify(parsed, null, 2);
+      setBody(formatted);
+      toast.success('JSON formatted and corrected successfully');
     } catch (err) {
-      console.error('[TemplateTestView] Error during test execution:', err);
-      const errorMsg = err.response?.data?.error || err.response?.data?.details || err.message;
-      alert(`Error starting test: ${errorMsg}`);
-    } finally {
-      setIsLoading(false);
+      toast.error(`Invalid JSON: ${err.message}`);
     }
   };
 
   return (
-    <BaseCard className="h-[50vh] overflow-hidden">
+    <BaseCard className="h-full overflow-hidden">
       <div className="section-card-header items-center justify-between">
-        <h2 className="text-2xl font-semibold text-text">Test API</h2>
-        <BaseButton variant="ghost" size="sm" onClick={OnClose}>
+        <h2 className="text-2xl font-semibold text-text">Manual Test Configuration</h2>
+        <BaseButton variant="icon" size="icon" onClick={OnClose}>
           <X size={16} />
         </BaseButton>
       </div>
-      <div className="flex flex-col lg:flex-row w-full h-full gap-6">
-        <div className="section-card w-full h-full lg:w-5/12 gap-4">
-          {/* Header */}
-          <h2 className="text-2xl font-semibold text-text">API Request</h2>
-          <div className="flex flex-row gap-4 p-2">
-            {/* Method and Path */}
-            <div className="form-row">
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value)}
-                className="form-select w-36 flex-none"
-              >
-                <option>GET</option>
-                <option>POST</option>
-                <option>PUT</option>
-                <option>DELETE</option>
-                <option>PATCH</option>
-                <option>HEAD</option>
-              </select>
-              <input
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                className="form-input"
-                placeholder="/endpoint"
-              />
-              <BaseButton variant="primary" size="md" disabled={isLoading} onClick={runTest}>
-                {isLoading ? <Square size={16} /> : <Play size={16} />}
-              </BaseButton>
-            </div>
-          </div>
-
-          <div className="card-section w-full gap-4">
-            {/* Predefined Tests Selector */}
-            {loadingConfigs && (
-              <p className="text-xs text-slate-500">Loading predefined configurations...</p>
-            )}
-            {predefinedConfigs.length > 0 && !loadingConfigs && (
-              <div className="flex flex-col gap-2 w-full">
-                <div className="flex flex-row items-center gap-2">
-                  <label className="flex text-text font-bold text-secondary">
-                    Predefined Configuration
-                  </label>
-                </div>
-
-                <div className="flex flex-row items-center justify-between w-full gap-4">
-                  <select
-                    onChange={(e) => applyPredefinedConfig(e.target.value)}
-                    className="form-select h-fit w-full bg-transparent px-2 rounded-full border-2 border-border outline-none text-xs text-secondary cursor-pointer"
-                  >
-                    <option value="">Select a saved test...</option>
-                    {predefinedConfigs.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.isDefault ? '[Default] ' : ''}{c.testName} ({c.method})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+      <div className="flex flex-col w-full">
+          {/* Predefined Tests Selector */}
+          {loadingConfigs && (
+            <p className="text-xs text-slate-500">Loading predefined configurations...</p>
+          )}
+          {predefinedConfigs.length > 0 && !loadingConfigs && (
+            <div className="flex flex-col gap-2 w-full">
+              <div className="flex flex-row items-center gap-2">
+                <label className="flex text-text font-bold text-secondary">
+                  Predefined Test Configuration
+                </label>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Tabs Panel */}
-        <div className="section-card w-full h-full lg:w-7/12 gap-4">
+              <div className="flex flex-row items-center justify-between w-full gap-4">
+                <select
+                  onChange={(e) => applyPredefinedConfig(e.target.value)}
+                  className="form-select h-fit w-full bg-transparent p-4 rounded-xl border border-border outline-none text-xs text-secondary cursor-pointer"
+                >
+                  <option value="">Select a saved test...</option>
+                  {predefinedConfigs.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.isDefault ? '[Default] ' : ''}
+                      {c.testName} ({c.method})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Method and Path */}
+          <div className="form-row">
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="form-select w-fit h-full align-center items-center justify-between text-sm font-bold uppercase"
+            >
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+              <option>DELETE</option>
+              <option>PATCH</option>
+              <option>HEAD</option>
+            </select>
+            <input
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              className="form-input"
+              placeholder="/endpoint"
+            />
+          </div>
+
+          {/* Tabs Panel */}
           <div className="flex flex-wrap gap-2 border-b border-border pb-3">
             <button
               type="button"
@@ -278,13 +294,14 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
               Test Configuration
             </button>
           </div>
-          <div className="pt-1">
+          
+          <div className="expandible-content">
             {activeTab === 'params' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between p-2">
                   <p className="form-label mb-0">Query Parameters</p>
                   <BaseButton
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
                     onClick={() => setQueryParams([...queryParams, { key: '', value: '' }])}
                   >
@@ -293,7 +310,7 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
                 </div>
 
                 {queryParams.length === 0 ? (
-                  <p className="text-xs text-slate-500">No query parameters added</p>
+                  <p className="text-xs text-muted">No query parameters added</p>
                 ) : (
                   <div className="list-container max-h-64 p-4 overflow-y-auto">
                     {queryParams.map((q, idx) => (
@@ -341,7 +358,7 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
                 <div className="flex items-center justify-between">
                   <p className="form-label mb-0">Headers</p>
                   <BaseButton
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
                     onClick={() => setHeaders([...headers, { key: '', value: '' }])}
                   >
@@ -350,7 +367,7 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
                 </div>
 
                 {headers.length === 0 ? (
-                  <p className="text-xs text-slate-500">No custom headers added</p>
+                  <p className="text-xs text-muted">No custom headers added</p>
                 ) : (
                   <div className="list-container max-h-64 p-4 overflow-y-auto">
                     {headers.map((h, idx) => (
@@ -376,15 +393,15 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
                           placeholder="Value"
                         />
                         <BaseButton
-                          variant="ghost"
-                          size="sm"
+                          variant="icon"
+                          size="icon"
                           onClick={() => {
                             const copy = [...headers];
                             copy.splice(idx, 1);
                             setHeaders(copy);
                           }}
                         >
-                          <Undo size={16} />
+                          <X size={16} />
                         </BaseButton>
                       </div>
                     ))}
@@ -394,13 +411,20 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
             )}
 
             {activeTab === 'json' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-2">
                   <p className="form-label mb-0">Body (JSON)</p>
-                  {bodyValidationError && (
-                    <span className="text-xs text-red-600">{bodyValidationError}</span>
-                  )}
+                  <BaseButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleFormatJSON}
+                  >
+                    Format JSON
+                  </BaseButton>
                 </div>
+                {bodyValidationError && (
+                  <span className="text-xs text-red-600 block mb-2">{bodyValidationError}</span>
+                )}
                 <textarea
                   value={body}
                   onChange={(e) => {
@@ -415,7 +439,7 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
             )}
 
             {activeTab === 'config' && (
-              <div className="card-section space-y-4 p-4 bg-gray-50 rounded border border-gray-200">
+              <div className="space-y-4">
                 <p className="form-label mb-0">Test Configuration</p>
 
                 <div className="form-group">
@@ -462,7 +486,6 @@ export default function TemplateTestView({ template, OnClose, onTestStarted }) {
               </div>
             )}
           </div>
-        </div>
       </div>
     </BaseCard>
   );

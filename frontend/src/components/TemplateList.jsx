@@ -23,7 +23,7 @@ export default function TemplateList({
   return (
     <>
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">API Templates</h2>
+        <h2 className="text-2xl font-bold">APIs</h2>
         <BaseButton variant="primary" onClick={onCreate} size="md">
           + New API
         </BaseButton>
