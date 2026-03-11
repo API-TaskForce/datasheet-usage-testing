@@ -1,10 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pencil, BookOpen, ChevronDown, Rocket, FlaskConical, SlidersHorizontal, FileText, Eye, EyeOff } from 'lucide-react';
+import {
+  Play,
+  Pencil,
+  BookOpen,
+  ChevronDown,
+  Rocket,
+  FlaskConical,
+  SlidersHorizontal,
+  FileText,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
 import BaseButton from '../BaseButton.jsx';
 
 export default function ApiDashboardActionBar({
   testMode,
   running,
+  inCooldown,
   loadingDefaultConfig,
   loadingDatasheet,
   showDatasheet,
@@ -12,6 +24,7 @@ export default function ApiDashboardActionBar({
   onToggleDatasheet,
   onRun,
   onConfigure,
+  isDummyTemplate,
 }) {
   const [openMenu, setOpenMenu] = useState(false);
   const menuRef = useRef(null);
@@ -32,72 +45,69 @@ export default function ApiDashboardActionBar({
       <div className="flex flex-wrap gap-2">
         <BaseButton
           variant={testMode === 'simulated' ? 'background' : 'primary'}
-          size="md"
+          size="sm"
           onClick={onToggleMode}
-          disabled={running}
+          disabled={running || isDummyTemplate}
+          title={isDummyTemplate ? 'Las APIs Dummy siempre usan modo simulado' : undefined}
         >
           {testMode === 'real' ? <Rocket size={16} /> : <FlaskConical size={16} />}
-          {testMode === 'real' ? 'Modo Real' : 'Modo Simulado'}
+          {isDummyTemplate
+            ? 'Simulado (Dummy)'
+            : testMode === 'real'
+              ? 'Real'
+              : 'Simulado'}
         </BaseButton>
 
-        <div className="relative" ref={menuRef}>
-          <BaseButton
-            variant="primary"
-            size="md"
-            onClick={() => setOpenMenu((prev) => !prev)}
-            disabled={running}
-            aria-haspopup="menu"
-            aria-expanded={openMenu}
-          >
-            <Play size={16} />
-            {running ? 'Ejecutando...' : 'Test Manual'}
-            <ChevronDown size={14} />
-          </BaseButton>
-
-          {openMenu && (
-            <div className="absolute right-0 z-30 mt-2 w-56 rounded-lg border border-secondary-lighter bg-primary shadow-lg">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenMenu(false);
-                  onRun();
-                }}
-                className="w-full px-3 py-2 text-left text-sm text-text hover:bg-secondary/20 disabled:opacity-50"
-                disabled={running || loadingDefaultConfig}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Play size={14} />
-                  Test Rapido
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenMenu(false);
-                  onConfigure();
-                }}
-                className="w-full px-3 py-2 text-left text-sm text-text hover:bg-secondary/20"
-                disabled={running}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <SlidersHorizontal size={14} />
-                  Configurar Test
-                </span>
-              </button>
-            </div>
-          )}
-        </div>
+        <BaseButton
+          variant="primary"
+          size="sm"
+          onClick={() => {
+            setOpenMenu(false);
+            onRun();
+          }}
+          disabled={running || inCooldown}
+          aria-haspopup="menu"
+          aria-expanded={openMenu}
+        >
+          <Play size={16} />
+          {running
+            ? 'Ejecutando...'
+            : inCooldown
+              ? 'Cooldown Activo'
+              : 'Test Manual'}
+        </BaseButton>
 
         <BaseButton
           variant="secondary"
-          size="md"
+          size="sm"
+          onClick={() => {
+            setOpenMenu(false);
+            onConfigure();
+          }}
+          disabled={running}
+          aria-haspopup="menu"
+          aria-expanded={openMenu}
+        >
+          <SlidersHorizontal size={16} />
+          {running ? 'Configurando...' : 'Configurar Test Manual'}
+        </BaseButton>
+
+        <BaseButton
+          variant="secondary"
+          size="sm"
           onClick={onToggleDatasheet}
           disabled={loadingDatasheet}
         >
-          
-          {showDatasheet ? <><EyeOff size={16} /> Ocultar Datasheet</> : <><Eye size={16} /> Ver Datasheet</>}
+          {showDatasheet ? (
+            <>
+              <EyeOff size={16} /> Ocultar Datasheet
+            </>
+          ) : (
+            <>
+              <Eye size={16} /> Ver Datasheet
+            </>
+          )}
         </BaseButton>
-
       </div>
     </div>
   );

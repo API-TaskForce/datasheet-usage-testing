@@ -50,7 +50,7 @@
 @layer components {
 
   .btn {
-    @apply w-auto inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed border border-solid;
+    @apply w-auto h-fit inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed border border-solid;
   }
 
   .btn-primary {
@@ -184,7 +184,7 @@
   }
 
   .badge-secondary {
-    @apply text-secondary bg-secondary/10 border-secondary/20;
+    @apply text-secondary bg-bg border-border;
   }
 
   /* Status badge inline styles */
@@ -352,7 +352,7 @@
 
   /* Action bar for filters and controls */
   .action-bar {
-    @apply right-8 flex flex-row fixed bg-primary items-center justify-between gap-4 p-4 rounded-lg border border-border shadow-lg;
+    @apply flex flex-row w-full bg-primary items-center justify-end gap-4 p-4 rounded-lg;
   }
 
   .action-bar-row {
@@ -362,11 +362,11 @@
 
   /* Stats grid */
   .stats-grid {
-    @apply grid grid-cols-2 md:grid-cols-4 gap-3;
+    @apply flex flex-row w-full gap-6 items-center justify-between;
   }
 
   .stat-card {
-    @apply p-4 rounded-lg border text-center;
+    @apply w-full p-4 bg-primary rounded-lg border text-center shadow-md;
   }
 
   .stat-card-success {
@@ -725,6 +725,10 @@
 
   .toast-icon {
     @apply flex-shrink-0;
+  }
+
+  .toast-count {
+    @apply font-semibold text-xs opacity-80;
   }
 
   .toast-message {

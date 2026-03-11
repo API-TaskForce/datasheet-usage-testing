@@ -56,7 +56,7 @@ export default function DatasheetViewer({ datasheet, templateName, templateUri }
   const hasCustomStructure = !!(parsedDatasheet?.associatedSaaS || parsedDatasheet?.capacity || parsedDatasheet?.maxPower);
 
   return (
-    <div className="space-y-4 bg-bg p-2">
+    <div className="space-y-4 bg-bg p-2 overflow-auto max-h-[80vh]">
       {/* Render based on structure type */}
       {hasCustomStructure && (
         renderCustomStructure(parsedDatasheet, expandedSections, toggleSection)

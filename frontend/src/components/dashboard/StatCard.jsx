@@ -9,11 +9,11 @@ import React from 'react';
  */
 export default function StatCard({ title, value, icon, color }) {
   return (
-    <div className="stat-card flex items-center gap-4">
-      <div className={'badge badge-accent'}>{icon}</div>
-      <div>
+    <div className="stat-card flex items-center gap-4 px-6">
+      <div className='text-muted'>{icon}</div>
+      <div className="flex flex-row items-center justify-between w-full">
         <p className="text-secondary">{title}</p>
-        <p className={`font-black ${color}`}>{value}</p>
+        <p className={`badge badge-secondary ${color}`}>{value}</p>
       </div>
     </div>
   );

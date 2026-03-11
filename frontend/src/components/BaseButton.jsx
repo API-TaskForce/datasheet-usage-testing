@@ -19,9 +19,9 @@ export default function BaseButton({
   }[variant] || 'bg-blue-600 text-white'
 
   const sizeClass = {
-    sm: 'px-4 py-1 text-sm',
-    md: 'px-8 py-2 text-base',
-    lg: 'px-10 py-3 text-lg',
+    sm: 'px-2 py-1 text-sm',
+    md: 'px-4 py-1 text-base',
+    lg: 'px-6 py-1 text-lg',
     icon: 'p-2 w-fit'
   }[size] || 'px-4 py-2 text-base'
 

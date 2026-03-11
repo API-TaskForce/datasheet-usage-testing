@@ -14,6 +14,7 @@ import {
   updateTemplate,
   deleteTemplate,
   getTemplateDatasheet,
+  getTemplateLimit,
 } from '../controllers/apiTemplatesController.js';
 import {
   createConfig,
@@ -71,6 +72,15 @@ router.post('/run', validateTestSchema, (req, res) => {
 router.get('/:id/datasheet', (req, res) => {
   if (req.routeType === 'templates') {
     getTemplateDatasheet(req, res);
+  } else {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
+// Specific route for limits (must come before /:id)
+router.get('/:id/limits', (req, res) => {
+  if (req.routeType === 'templates') {
+    getTemplateLimit(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }

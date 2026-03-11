@@ -1,13 +1,7 @@
 import {CircleX, CircleCheck, CircleAlert, Info} from 'lucide-react';
-import React, { useEffect } from 'react';
+import React from 'react';
 
-export default function Toast({ id, message, type = 'info', onDismiss, duration = 3000 }) {
-  useEffect(() => {
-    if (duration > 0) {
-      const timer = setTimeout(onDismiss, duration);
-      return () => clearTimeout(timer);
-    }
-  }, [duration, onDismiss]);
+export default function Toast({ message, type = 'info', onDismiss, count = 1 }) {
 
   const iconEmoji = {
     success: <CircleCheck size={24} />,
@@ -19,6 +13,7 @@ export default function Toast({ id, message, type = 'info', onDismiss, duration 
   return (
     <div className={`toast ${type}`}>
       <span className="toast-icon">{iconEmoji}</span>
+      {count > 1 && <span className="toast-count">({count} toasts)</span>}
       <span className="toast-message">{message}</span>
       <button
         onClick={onDismiss}

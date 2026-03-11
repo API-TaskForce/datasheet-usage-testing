@@ -10,12 +10,12 @@ import BaseButton from '../BaseButton';
  * @param {Function} onIntervalChange - Callback when interval is changed
  * @param {boolean} disabled - Whether the control should be disabled (e.g., during manual test)
  */
-export default function AutoRefreshSelector({ 
-  enabled, 
-  interval, 
-  onToggle, 
+export default function AutoRefreshSelector({
+  enabled,
+  interval,
+  onToggle,
   onIntervalChange,
-  disabled = false 
+  disabled = false,
 }) {
   const intervalOptions = [
     { value: 5, label: '5s' },
@@ -27,34 +27,44 @@ export default function AutoRefreshSelector({
   ];
 
   return (
-    <div className="flex items-center gap-2">
-      <BaseButton
-        onClick={onToggle}
-        disabled={disabled}
-        variant={enabled ? 'background' : 'primary'}
-      >{enabled ? <><Pause size={16} /> Detener</> : <><Play size={16} /> Iniciar</>}
-      </BaseButton>
+    <div className="flex items-center items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <BaseButton
+          onClick={onToggle}
+          disabled={disabled}
+          variant='primary'
+          size='icon'
+        >
+          {enabled ? (
+            <>
+              <Pause size={16} />
+            </>
+          ) : (
+            <>
+              <Play size={16} />
+            </>
+          )}
+        </BaseButton>
 
-      <select
-        value={interval}
-        onChange={(e) => onIntervalChange(Number(e.target.value))}
-        disabled={disabled || !enabled}
-        className={`px-3 py-2 rounded-lg text-sm font-semibold bg-primary text-text border border-border focus:border-secondary focus:outline-none transition-all ${
-          disabled || !enabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-secondary/10'
-        }`}
-      >
-        {intervalOptions.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        <select
+          value={interval}
+          onChange={(e) => onIntervalChange(Number(e.target.value))}
+          disabled={disabled || !enabled}
+          className={`px-3 py-2 rounded-lg text-sm font-semibold bg-primary text-text border border-border focus:border-secondary focus:outline-none transition-all ${
+            disabled || !enabled
+              ? 'opacity-50 cursor-not-allowed'
+              : 'cursor-pointer hover:bg-secondary/10'
+          }`}
+        >
+          {intervalOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
 
-      {enabled && (
-        <span className="badge badge-success">
-          ● En ejecución
-        </span>
-      )}
+        {enabled && <span className="badge badge-success">● En ejecución</span>}
+      </div>
     </div>
   );
 }

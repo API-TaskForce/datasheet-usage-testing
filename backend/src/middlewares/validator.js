@@ -11,7 +11,16 @@ const testSchema = Joi.object({
   clients: Joi.number().integer().min(1).default(1),
   totalRequests: Joi.number().integer().min(1).default(1),
   intervalMs: Joi.number().integer().min(0).default(0),
-  timeoutMs: Joi.number().integer().min(0).default(5000)
+  timeoutMs: Joi.number().integer().min(0).default(5000),
+  dummyMode: Joi.boolean().optional().default(false),
+  dummyConfig: Joi.object({
+    quotaMax: Joi.number().integer().min(1).optional(),
+    rateMax: Joi.number().integer().min(1).optional(),
+    windowModel: Joi.string().valid('FIXED_WINDOW', 'SLIDING_WINDOW').optional(),
+    windowSeconds: Joi.number().integer().min(1).optional(),
+    cooldownSeconds: Joi.number().integer().min(1).optional(),
+    totalRequests: Joi.number().integer().min(1).optional()
+  }).optional().allow(null)
 });
 
 const templateSchema = Joi.object({
@@ -61,7 +70,22 @@ const templateSchema = Joi.object({
   status: Joi.string()
     .optional()
     .valid('active', 'inactive')
-    .default('active')
+    .default('active'),
+
+  isDummy: Joi.boolean().optional(),
+
+  dummyConfig: Joi.object({
+    quotaMax: Joi.number().integer().min(1).optional(),
+    rateMax: Joi.number().integer().min(1).optional(),
+    windowModel: Joi.string().valid('FIXED_WINDOW', 'SLIDING_WINDOW').optional(),
+    windowType: Joi.string().valid('FIXED_WINDOW', 'SLIDING_WINDOW').optional(),
+    windowSeconds: Joi.number().integer().min(1).optional(),
+    cooldownSeconds: Joi.number().integer().min(1).optional(),
+    coolingPeriodMs: Joi.number().integer().min(1).optional(),
+    totalRequests: Joi.number().integer().min(1).optional()
+  })
+    .optional()
+    .allow(null)
 });
 
 export function validateTestSchema(req, res, next) {

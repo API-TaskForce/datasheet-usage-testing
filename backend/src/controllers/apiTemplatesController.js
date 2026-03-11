@@ -6,6 +6,7 @@ import {
   deleteTemplateById,
   parseDatasheet,
   getTemplateWithParsedDatasheet,
+  getTemplateLimits,
 } from '../services/apiTemplatesService.js';
 import { success, error as logError } from '../lib/log.js';
 
@@ -106,5 +107,20 @@ export async function getTemplateDatasheet(req, res) {
     logError(`Error getting template datasheet: ${err.message}`);
     const statusCode = err.message.includes('YAML') ? 422 : 404;
     res.status(statusCode).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /templates/:id/limits
+ * Get API limits for a template (extracted from datasheet)
+ */
+export async function getTemplateLimit(req, res) {
+  try {
+    const limits = await getTemplateLimits(req.params.id);
+    success(`Limits retrieved for template: ${req.params.id}`);
+    res.json(limits);
+  } catch (err) {
+    logError(`Error getting template limits: ${err.message}`);
+    res.status(404).json({ error: err.message });
   }
 }

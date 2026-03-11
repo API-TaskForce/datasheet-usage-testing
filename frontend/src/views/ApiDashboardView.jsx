@@ -1,33 +1,40 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import uPlot from 'uplot';
-import UPlotChart from '../components/UPlotChart.jsx';
 import TemplateTestView from '../components/TemplateTestView.jsx';
 import TemplateForm from '../components/TemplateForm.jsx';
-import GranularitySelector from '../components/GranularitySelector.jsx';
 import DatasheetViewer from '../components/DatasheetViewer.jsx';
 import StorageInfoPanel from '../components/StorageInfoPanel.jsx';
 import ApiDashboardActionBar from '../components/dashboard/ApiDashboardActionBar.jsx';
 import ApiDashboardTabs from '../components/dashboard/ApiDashboardTabs.jsx';
 import { RealTimePanel, SimpleRealTimePanel } from '../components/dashboard/RealtimePanels.jsx';
 import StatCard from '../components/dashboard/StatCard.jsx';
-import ProgressBar from '../components/dashboard/ProgressBar.jsx';
-import DonutChart from '../components/dashboard/DonutChart.jsx';
-import { OpportunityPanel, OpportunityPanelHistorical } from '../components/dashboard/OpportunityPanels.jsx';
-import AutoRefreshSelector from '../components/dashboard/AutoRefreshSelector.jsx';
+import HistoricalInstantChartCard from '../components/dashboard/charts/HistoricalInstantChartCard.jsx';
+import CapacityCooldownChartCard from '../components/dashboard/charts/CapacityCooldownChartCard.jsx';
+import SafeModeAutoRefreshCard from '../components/dashboard/SafeModeAutoRefreshCard.jsx';
+import ApiLimitsQuotaCard from '../components/dashboard/ApiLimitsQuotaCard.jsx';
+import DummyApiControlPanel from '../components/dashboard/DummyApiControlPanel.jsx';
 import {
   getActiveJobResults,
   testApi,
+  getTemplate as getTemplateRecord,
   getTestResults,
   getApiLimits,
   getTemplateDatasheet,
   getTestConfigs,
+  updateTemplate as updateTemplateRecord,
 } from '../services/apiTemplateService.js';
+import { useTestHistory } from '../hooks/useTestHistory.js';
+import { useToast } from '../stores/toastStore.jsx';
 import {
-  useTestHistory,
-  formatTimeByGranularity,
-  parseGranularity,
-} from '../hooks/useTestHistory.js';
-import { Activity, Clock, AlertCircle, Trash2, BookOpen, Pencil, FileText } from 'lucide-react';
+  Activity,
+  Clock,
+  AlertCircle,
+  Trash2,
+  BookOpen,
+  Pencil,
+  FileText,
+  X,
+  CheckCircle,
+} from 'lucide-react';
 import BaseButton from '../components/BaseButton.jsx';
 import BaseCard from '../components/BaseCard.jsx';
 
@@ -93,126 +100,6 @@ function extractDailyLimitFromResponse(response) {
   return findLimit(bodyObj);
 }
 
-function extractFirstNumber(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number' && !Number.isNaN(value)) return value;
-  if (typeof value !== 'string') return null;
-
-  const match = value.replace(/,/g, '').match(/\d+/);
-  if (!match) return null;
-  const num = parseInt(match[0], 10);
-  return Number.isNaN(num) ? null : num;
-}
-
-function extractLimitsFromDatasheet(datasheet) {
-  if (!datasheet || typeof datasheet !== 'object') {
-    return { quotaMax: null, rateMax: null };
-  }
-
-  const quotaCandidates = [];
-  let rateMax = null;
-
-  if (Array.isArray(datasheet.capacity)) {
-    datasheet.capacity.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return;
-      const isQuota = !entry.type || String(entry.type).toUpperCase().includes('QUOTA');
-      if (!isQuota) return;
-      const n = extractFirstNumber(entry.value);
-      if (n !== null) quotaCandidates.push(n);
-    });
-  }
-
-  if (datasheet.maxPower) {
-    if (typeof datasheet.maxPower === 'object') {
-      rateMax = extractFirstNumber(datasheet.maxPower.value);
-    } else {
-      rateMax = extractFirstNumber(datasheet.maxPower);
-    }
-  }
-
-  if (rateMax === null && datasheet.rateLimit && typeof datasheet.rateLimit === 'object') {
-    if (typeof datasheet.rateLimit.requestsPerMinute === 'number') {
-      rateMax = datasheet.rateLimit.requestsPerMinute;
-    } else if (typeof datasheet.rateLimit.requestsPerSecond === 'number') {
-      rateMax = datasheet.rateLimit.requestsPerSecond * 60;
-    }
-  }
-
-  const quotaMax = quotaCandidates.length > 0 ? Math.max(...quotaCandidates) : null;
-  return { quotaMax, rateMax };
-}
-
-function parseDurationToSeconds(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number' && !Number.isNaN(value)) return value;
-  if (typeof value !== 'string') return null;
-
-  const raw = value.trim().toLowerCase();
-  if (!raw) return null;
-
-  const numMatch = raw.match(/\d+/);
-  if (!numMatch) return null;
-  const n = parseInt(numMatch[0], 10);
-  if (Number.isNaN(n)) return null;
-
-  if (raw.includes('hour') || raw.includes('hora') || raw.endsWith('h')) return n * 3600;
-  if (raw.includes('minute') || raw.includes('min') || raw.includes('minuto') || raw.endsWith('m'))
-    return n * 60;
-  return n;
-}
-
-function normalizeWindowModel(windowType) {
-  const v = String(windowType || '').toUpperCase();
-  if (!v) return 'UNKNOWN';
-  if (v.includes('SLID')) return 'SLIDING_WINDOW';
-  if (v.includes('FIXED') || v.includes('DAILY') || v.includes('MONTHLY') || v.includes('CUSTOM')) {
-    return 'FIXED_WINDOW';
-  }
-  return 'UNKNOWN';
-}
-
-function extractRateUsageModelFromDatasheet(datasheet) {
-  const fallback = {
-    windowModel: 'UNKNOWN',
-    cooldownSeconds: 30,
-    windowTypeRaw: null,
-    source: 'fallback',
-  };
-
-  if (!datasheet || typeof datasheet !== 'object') return fallback;
-
-  let windowTypeRaw = null;
-  let cooldownSeconds = null;
-
-  if (Array.isArray(datasheet.capacity)) {
-    const withWindow = datasheet.capacity.find((entry) => entry && entry.windowType);
-    if (withWindow) windowTypeRaw = withWindow.windowType;
-  }
-
-  if (!windowTypeRaw && datasheet.rateLimit?.windowType) {
-    windowTypeRaw = datasheet.rateLimit.windowType;
-  }
-
-  if (datasheet.coolingPeriod) {
-    cooldownSeconds = parseDurationToSeconds(datasheet.coolingPeriod);
-  }
-
-  if (!cooldownSeconds && datasheet.rateLimit?.window) {
-    cooldownSeconds = parseDurationToSeconds(datasheet.rateLimit.window);
-  }
-
-  if (!cooldownSeconds && datasheet.maxPower?.window) {
-    cooldownSeconds = parseDurationToSeconds(datasheet.maxPower.window);
-  }
-
-  return {
-    windowModel: normalizeWindowModel(windowTypeRaw),
-    cooldownSeconds: cooldownSeconds || fallback.cooldownSeconds,
-    windowTypeRaw,
-    source: windowTypeRaw || cooldownSeconds ? 'datasheet' : fallback.source,
-  };
-}
-
 function pickDefaultTestConfig(configs) {
   if (!Array.isArray(configs) || configs.length === 0) return null;
 
@@ -254,25 +141,47 @@ function buildCooldownSpans(results, fallbackCooldownSeconds, windowModel) {
     });
 }
 
+const DEFAULT_DUMMY_CONTROL = {
+  quotaMax: 1000,
+  rateMax: 60,
+  windowModel: 'FIXED_WINDOW',
+  windowSeconds: 60,
+  cooldownSeconds: 30,
+  totalRequests: 80,
+};
+
+const clampInt = (value, min, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, parsed);
+};
+
 export default function ApiDashboardView({ template }) {
   const [running, setRunning] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [testMode, setTestMode] = useState('real');
-  const [granularity, setGranularity] = useState('1m');
   const [datasheet, setDatasheet] = useState(null);
   const [loadingDatasheet, setLoadingDatasheet] = useState(true);
   const [showDatasheet, setShowDatasheet] = useState(false);
   const [activeTab, setActiveTab] = useState('charts');
+  const [capacityViewInterval, setCapacityViewInterval] = useState('auto');
+  const [trafficTimeScale, setTrafficTimeScale] = useState('1h');
   const [defaultTestConfig, setDefaultTestConfig] = useState(null);
   const [loadingDefaultConfig, setLoadingDefaultConfig] = useState(false);
   const [advancedView, setAdvancedView] = useState(false);
-  const [rateUsageModel, setRateUsageModel] = useState({
-    windowModel: 'UNKNOWN',
-    cooldownSeconds: 30,
-    windowTypeRaw: null,
-    source: 'fallback',
-  });
+  const [dummyControl, setDummyControl] = useState(DEFAULT_DUMMY_CONTROL);
+  const [savingDummyControl, setSavingDummyControl] = useState(false);
+  const [resolvedIsDummy, setResolvedIsDummy] = useState(Boolean(template?.isDummy));
+  const [resolvedDummyConfig, setResolvedDummyConfig] = useState(template?.dummyConfig || null);
+
+  // Safe mode: auto-regulates requests to avoid hitting rate limits
+  const [safeModeEnabled, setSafeModeEnabled] = useState(false);
+
+  // Cooldown tracking
+  const [cooldownTimeRemaining, setCooldownTimeRemaining] = useState(0);
+  const [activeCooldownEnd, setActiveCooldownEnd] = useState(null);
+  const cooldownTimerInterval = useRef(null);
 
   // Auto-refresh states
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
@@ -280,14 +189,12 @@ export default function ApiDashboardView({ template }) {
   const autoRefreshInterval = useRef(null);
 
   // Test history management
-  const {
-    history,
-    addTestResult,
-    clearHistory,
-    aggregateByGranularity,
-    getCumulativeOverTime,
-    getCurrentStats,
-  } = useTestHistory(template?.id || 'default');
+  const toast = useToast();
+  const lastAlertedCountRef = useRef(0);
+  const alertedResultKeysRef = useRef(new Set());
+  const { history, addTestResult, clearHistory, getCurrentStats } = useTestHistory(
+    template?.id || 'default'
+  );
 
   // Real-time metrics from current test
   const [liveResults, setLiveResults] = useState([]);
@@ -296,24 +203,136 @@ export default function ApiDashboardView({ template }) {
   // Final summary from completed test
   const [summary, setSummary] = useState(null);
 
-  // API limits fetched on-first-result
+  // API limits fetched from backend (unified structure)
   const [apiLimits, setApiLimits] = useState({
-    quotaDaily: template?.quotaLimit || null,
-    rateDaily: template?.rateDaily || null,
-    quotaSource: template?.quotaLimit ? 'template' : null,
-    rateSource: template?.rateDaily ? 'template' : null,
+    quotaMax: template?.quotaLimit || null,
+    rateMax: template?.rateDaily || null,
+    windowModel: 'UNKNOWN',
+    windowSeconds: null,
+    cooldownSeconds: 30,
+    source: template?.quotaLimit || template?.rateDaily ? 'template' : 'none',
     fetched: false,
   });
 
-  // Chart states
-  const [timeline, setTimeline] = useState([Math.floor(Date.now() / 1000)]);
-  const [seriesData, setSeriesData] = useState({
-    success: [0],
-    rateLimit: [0],
-    error: [0],
-  });
-
   const pollInterval = useRef(null);
+  const isDummyTemplate = Boolean(
+    template?.isDummy || resolvedIsDummy || template?.dummyConfig || resolvedDummyConfig
+  );
+  const persistedDummyConfig = resolvedDummyConfig || template?.dummyConfig || null;
+
+  const buildResultAlertKey = useCallback((result, index = 0) => {
+    return [
+      result?.seq ?? index,
+      result?.timestamp ?? 'no-ts',
+      result?.statusCode ?? result?.status ?? 'no-status',
+      result?.request?.url ?? 'no-url',
+    ].join('|');
+  }, []);
+
+  const notifyRateLimitAnd4xx = useCallback(
+    (results) => {
+      if (!Array.isArray(results) || results.length === 0) return;
+
+      results.forEach((result, index) => {
+        const isRateLimited = result?.statusCode === 429 || result?.status === 'rate_limited';
+        const isClientError = Number(result?.statusCode) >= 400 && Number(result?.statusCode) < 500;
+
+        if (!isRateLimited && !isClientError) {
+          return;
+        }
+
+        const alertKey = buildResultAlertKey(result, index);
+        if (alertedResultKeysRef.current.has(alertKey)) {
+          return;
+        }
+        alertedResultKeysRef.current.add(alertKey);
+
+        const retryAfter = Number(result?.rateLimit?.retryAfter || result?.retryAfter || 0);
+        const endpoint = result?.request?.url ? ` · ${result.request.url}` : '';
+
+        if (isRateLimited) {
+          const cooldownDetail = retryAfter > 0 ? ` · Cooldown ${retryAfter}s` : '';
+          toast.warning(
+            `Peticiones limitadas (429)${cooldownDetail}${endpoint}`,
+            6500,
+            `rate-limit-429-${retryAfter > 0 ? retryAfter : 'na'}`
+          );
+          return;
+        }
+
+        const statusCode = result?.statusCode || '4XX';
+        toast.error(`Error cliente ${statusCode}${endpoint}`, 6500, `client-error-${statusCode}`);
+      });
+    },
+    [buildResultAlertKey, toast]
+  );
+
+  const startProgressiveSimulation = useCallback(
+    (results, jobPrefix, options = {}) => {
+      if (!Array.isArray(results) || results.length === 0) {
+        return;
+      }
+
+      if (pollInterval.current) {
+        clearInterval(pollInterval.current);
+        pollInterval.current = null;
+      }
+
+      lastAlertedCountRef.current = 0;
+      alertedResultKeysRef.current = new Set();
+      setRunning(true);
+      setActiveJobId(`${jobPrefix}-${Date.now()}`);
+      setLiveResults([]);
+      setSummary(null);
+      setShowModal(false);
+
+      const instant = Boolean(options?.instant);
+
+      if (instant) {
+        processResults(results);
+        const finalSummary = buildSummaryFromResults(results);
+        setSummary(finalSummary);
+        setLiveResults(results);
+
+        addTestResult({
+          jobId: `${jobPrefix}-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          results,
+          summary: finalSummary,
+        });
+
+        setRunning(false);
+        return;
+      }
+
+      let idx = 0;
+      const progressive = [];
+
+      pollInterval.current = setInterval(() => {
+        progressive.push(results[idx]);
+        processResults(progressive);
+        idx += 1;
+
+        if (idx >= results.length) {
+          clearInterval(pollInterval.current);
+          pollInterval.current = null;
+          const finalSummary = buildSummaryFromResults(results);
+          setSummary(finalSummary);
+          setLiveResults(results);
+
+          addTestResult({
+            jobId: `${jobPrefix}-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            results,
+            summary: finalSummary,
+          });
+
+          setRunning(false);
+        }
+      }, 75);
+    },
+    [addTestResult]
+  );
 
   // Auto-refresh: toggle on/off
   const handleAutoRefreshToggle = () => {
@@ -350,8 +369,9 @@ export default function ApiDashboardView({ template }) {
     const queryParams = Array.isArray(config?.queryParams)
       ? config.queryParams
           .filter((q) => q && String(q.key || '').trim() !== '')
-          .map((q) =>
-            `${encodeURIComponent(String(q.key).trim())}=${encodeURIComponent(String(q.value || '').trim())}`
+          .map(
+            (q) =>
+              `${encodeURIComponent(String(q.key).trim())}=${encodeURIComponent(String(q.value || '').trim())}`
           )
       : [];
     const query = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
@@ -372,9 +392,15 @@ export default function ApiDashboardView({ template }) {
   const runSimulatedTest = (config) => {
     const totalRequests = Math.max(1, parseInt(config?.totalRequests || 80, 10));
     const now = Date.now();
-    const cooldownBase = rateUsageModel.cooldownSeconds || 30;
+    const cooldownBase = apiLimits.cooldownSeconds || 30;
 
-    let cursor = now;
+    // Simulate timestamps starting in the past so the data lands on past x-axis positions.
+    // Estimate total span: ~75 normal * 400ms + 2 cooldowns * cooldownBase
+    const estimatedNormalMs = totalRequests * 400;
+    const estimatedCooldownMs = 2 * cooldownBase * 1000;
+    const estimatedTotalMs = estimatedNormalMs + estimatedCooldownMs + 5000;
+    // Start far enough in the past that the last result lands ~5s ago
+    let cursor = now - estimatedTotalMs;
     const simulatedResults = [];
 
     for (let i = 0; i < totalRequests; i++) {
@@ -404,7 +430,7 @@ export default function ApiDashboardView({ template }) {
             statusCode === 429
               ? {
                   'retry-after': String(cooldownBase),
-                  'x-ratelimit-limit': String(apiLimits?.rateDaily || 60),
+                  'x-ratelimit-limit': String(apiLimits?.rateMax || 60),
                 }
               : {},
           body:
@@ -418,7 +444,7 @@ export default function ApiDashboardView({ template }) {
                 detected: true,
                 retryAfter: cooldownBase,
                 window: cooldownBase,
-                limit: apiLimits?.rateDaily || null,
+                limit: apiLimits?.rateMax || null,
               }
             : null,
       };
@@ -427,53 +453,228 @@ export default function ApiDashboardView({ template }) {
 
       if (triggerQuotaError) {
         const cooldownGap =
-          rateUsageModel.windowModel === 'SLIDING_WINDOW'
+          apiLimits.windowModel === 'SLIDING_WINDOW'
             ? Math.max(1, Math.floor(cooldownBase * 0.6))
             : cooldownBase;
         cursor += cooldownGap * 1000;
       } else {
-        cursor += 300 + Math.floor(Math.random() * 250);
+        // Vary request spacing: some bursts (100-200ms), some slower (400-700ms)
+        const isBurst = Math.random() < 0.4;
+        cursor += isBurst
+          ? 100 + Math.floor(Math.random() * 100)
+          : 400 + Math.floor(Math.random() * 300);
       }
     }
 
-    if (pollInterval.current) {
-      clearInterval(pollInterval.current);
-      pollInterval.current = null;
+    startProgressiveSimulation(simulatedResults, 'sim');
+  };
+
+  // ---------------------------------------------------------------------------
+  // Dummy API: fully mocked test — no real HTTP calls, hardcoded responses
+  // designed to showcase chart rendering with realistic traffic patterns.
+  // Parameters are locked to the Dummy datasheet: 60 rpm, 30s cooldown,
+  // FIXED_WINDOW 60s, 1000 daily quota.
+  // ---------------------------------------------------------------------------
+  const runDummyTest = (config) => {
+    const DUMMY_RPM_LIMIT = clampInt(dummyControl?.rateMax, 1, DEFAULT_DUMMY_CONTROL.rateMax);
+    const DUMMY_COOLDOWN_S = clampInt(
+      dummyControl?.cooldownSeconds,
+      1,
+      DEFAULT_DUMMY_CONTROL.cooldownSeconds
+    );
+    const DUMMY_WINDOW_S = clampInt(
+      dummyControl?.windowSeconds,
+      1,
+      DEFAULT_DUMMY_CONTROL.windowSeconds
+    );
+    const DUMMY_ROUTES = [
+      '/weather/current',
+      '/weather/forecast',
+      '/status/health',
+      '/alerts/active',
+      '/air-quality/index',
+      '/stations/nearby',
+    ];
+    const DUMMY_METHODS = ['GET', 'POST', 'PUT'];
+
+    const totalRequests = Math.max(
+      1,
+      parseInt(config?.totalRequests || dummyControl?.totalRequests || 80, 10)
+    );
+    const now = Date.now();
+
+    // Randomized mock weather responses
+    const MOCK_BODIES = [
+      {
+        location: 'Madrid',
+        temperature: 22.5,
+        humidity: 45,
+        condition: 'sunny',
+        wind_speed: 12,
+        unit: 'celsius',
+      },
+      {
+        location: 'Barcelona',
+        temperature: 24.1,
+        humidity: 60,
+        condition: 'partly_cloudy',
+        wind_speed: 8,
+        unit: 'celsius',
+      },
+      {
+        location: 'Sevilla',
+        temperature: 28.3,
+        humidity: 35,
+        condition: 'hot',
+        wind_speed: 5,
+        unit: 'celsius',
+      },
+      {
+        location: 'Valencia',
+        temperature: 25.7,
+        humidity: 55,
+        condition: 'clear',
+        wind_speed: 10,
+        unit: 'celsius',
+      },
+      {
+        location: 'Bilbao',
+        temperature: 18.2,
+        humidity: 75,
+        condition: 'cloudy',
+        wind_speed: 18,
+        unit: 'celsius',
+      },
+      {
+        location: 'Zaragoza',
+        temperature: 20.0,
+        humidity: 50,
+        condition: 'windy',
+        wind_speed: 25,
+        unit: 'celsius',
+      },
+      {
+        location: 'Málaga',
+        temperature: 26.8,
+        humidity: 65,
+        condition: 'humid',
+        wind_speed: 6,
+        unit: 'celsius',
+      },
+      {
+        location: 'Murcia',
+        temperature: 30.1,
+        humidity: 30,
+        condition: 'very_hot',
+        wind_speed: 3,
+        unit: 'celsius',
+      },
+    ];
+
+    const estimatedNormalMs = totalRequests * 4;
+    let cursor = now - estimatedNormalMs;
+
+    const simulatedResults = [];
+    let remainingInWindow = DUMMY_RPM_LIMIT;
+    const rateLimitProbability = Math.min(
+      0.35,
+      Math.max(0.06, totalRequests / (DUMMY_RPM_LIMIT * 4))
+    );
+
+    for (let i = 0; i < totalRequests; i++) {
+      const triggerRateLimit = Math.random() < rateLimitProbability;
+      const statusCode = triggerRateLimit ? 429 : 200;
+      const status = statusCode === 429 ? 'rate_limited' : 'ok';
+      const durationMs =
+        statusCode === 429 ? 1 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 5);
+
+      const mockBody = MOCK_BODIES[Math.floor(Math.random() * MOCK_BODIES.length)];
+      const method = DUMMY_METHODS[Math.floor(Math.random() * DUMMY_METHODS.length)];
+      const route = DUMMY_ROUTES[Math.floor(Math.random() * DUMMY_ROUTES.length)];
+      const randomId = Math.floor(Math.random() * 5000) + 1;
+      const resetTs = Math.floor(cursor / 1000) + DUMMY_COOLDOWN_S;
+
+      if (statusCode === 200) {
+        remainingInWindow = Math.max(0, remainingInWindow - 1);
+      }
+
+      simulatedResults.push({
+        seq: i + 1,
+        timestamp: new Date(cursor).toISOString(),
+        status,
+        statusCode,
+        durationMs,
+        retryAfter: statusCode === 429 ? String(DUMMY_COOLDOWN_S) : null,
+        request: {
+          url: `https://dummy.mock.local${route}?rid=${randomId}`,
+          method,
+          headers: { 'Content-Type': 'application/json', 'x-demo-client': 'dummy-api-demo' },
+          body:
+            method === 'GET'
+              ? null
+              : JSON.stringify({
+                  sample: true,
+                  seq: i + 1,
+                  rid: randomId,
+                  city: mockBody.location,
+                }),
+        },
+        response: {
+          status: statusCode,
+          statusText: statusCode === 429 ? 'Too Many Requests' : 'OK',
+          headers:
+            statusCode === 429
+              ? {
+                  'retry-after': String(DUMMY_COOLDOWN_S),
+                  'x-ratelimit-limit': String(DUMMY_RPM_LIMIT),
+                  'x-ratelimit-remaining': '0',
+                  'x-ratelimit-reset': String(resetTs),
+                  'x-ratelimit-window': `${DUMMY_WINDOW_S}s`,
+                  'content-type': 'application/json',
+                }
+              : {
+                  'x-ratelimit-limit': String(DUMMY_RPM_LIMIT),
+                  'x-ratelimit-remaining': String(remainingInWindow),
+                  'x-ratelimit-window': `${DUMMY_WINDOW_S}s`,
+                  'content-type': 'application/json',
+                },
+          body:
+            statusCode === 429
+              ? JSON.stringify({
+                  error: 'Rate limit exceeded',
+                  message: `Too many requests. Retry after ${DUMMY_COOLDOWN_S}s.`,
+                  retryAfter: DUMMY_COOLDOWN_S,
+                  limit: DUMMY_RPM_LIMIT,
+                  window: `${DUMMY_WINDOW_S}s`,
+                  _source: 'dummy-mock',
+                })
+              : JSON.stringify({
+                  ...mockBody,
+                  timestamp: new Date(cursor).toISOString(),
+                  requestId: `dummy-${i + 1}-${Math.random().toString(36).slice(2, 7)}`,
+                  _source: 'dummy-mock',
+                }),
+        },
+        rateLimit:
+          statusCode === 429
+            ? {
+                detected: true,
+                retryAfter: DUMMY_COOLDOWN_S,
+                window: DUMMY_WINDOW_S,
+                limit: DUMMY_RPM_LIMIT,
+              }
+            : null,
+      });
+
+      if (triggerRateLimit) {
+        cursor += 5 + Math.floor(Math.random() * 5);
+        remainingInWindow = DUMMY_RPM_LIMIT;
+      } else {
+        cursor += 1 + Math.floor(Math.random() * 4);
+      }
     }
 
-    setRunning(true);
-    setActiveJobId(`sim-${Date.now()}`);
-    setLiveResults([]);
-    setTimeline([Math.floor(Date.now() / 1000)]);
-    setSeriesData({ success: [0], rateLimit: [0], error: [0] });
-    setSummary(null);
-    setShowModal(false);
-
-    let idx = 0;
-    const progressive = [];
-
-    pollInterval.current = setInterval(() => {
-      progressive.push(simulatedResults[idx]);
-      processResults(progressive);
-      idx += 1;
-
-      if (idx >= simulatedResults.length) {
-        clearInterval(pollInterval.current);
-        pollInterval.current = null;
-        const finalSummary = buildSummaryFromResults(simulatedResults);
-        setSummary(finalSummary);
-        setLiveResults(simulatedResults);
-
-        addTestResult({
-          jobId: `sim-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          results: simulatedResults,
-          summary: finalSummary,
-        });
-
-        setRunning(false);
-      }
-    }, 75);
+    startProgressiveSimulation(simulatedResults, 'dummy', { instant: true });
   };
 
   const executeDefaultConfigTest = async (config) => {
@@ -508,6 +709,30 @@ export default function ApiDashboardView({ template }) {
       clients: Math.max(1, parseInt(config?.clients || 1, 10)),
       totalRequests: Math.max(1, parseInt(config?.totalRequests || 1, 10)),
       timeoutMs: Math.max(1000, parseInt(config?.timeoutMs || 5000, 10)),
+      dummyMode: Boolean(isDummyTemplate),
+      dummyConfig: isDummyTemplate
+        ? {
+            quotaMax: clampInt(dummyControl?.quotaMax, 1, DEFAULT_DUMMY_CONTROL.quotaMax),
+            rateMax: clampInt(dummyControl?.rateMax, 1, DEFAULT_DUMMY_CONTROL.rateMax),
+            windowModel:
+              dummyControl?.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+            windowSeconds: clampInt(
+              dummyControl?.windowSeconds,
+              1,
+              DEFAULT_DUMMY_CONTROL.windowSeconds
+            ),
+            cooldownSeconds: clampInt(
+              dummyControl?.cooldownSeconds,
+              1,
+              DEFAULT_DUMMY_CONTROL.cooldownSeconds
+            ),
+            totalRequests: clampInt(
+              dummyControl?.totalRequests,
+              1,
+              DEFAULT_DUMMY_CONTROL.totalRequests
+            ),
+          }
+        : null,
     };
 
     const { jobId } = await testApi(payload);
@@ -516,24 +741,55 @@ export default function ApiDashboardView({ template }) {
 
   const handlePrimaryTestClick = async () => {
     if (running) return;
+    if (isCurrentlyInCooldown) return; // Block clicks during cooldown
 
-    const fallbackConfig = defaultTestConfig || {
-      method: template?.requestMethod || 'GET',
-      path: '/',
-      clients: 1,
-      totalRequests: 40,
-      timeoutMs: 5000,
-      body: '',
+    const fallbackConfig = {
+      ...(defaultTestConfig || {
+        method: template?.requestMethod || 'GET',
+        path: '/',
+        clients: 1,
+        totalRequests: 40,
+        timeoutMs: 5000,
+        body: '',
+      }),
     };
 
+    // Apply safe mode limits if enabled
+    if (safeModeEnabled && safeRequestCount !== null) {
+      fallbackConfig.totalRequests = Math.min(
+        parseInt(fallbackConfig.totalRequests || 40, 10),
+        safeRequestCount
+      );
+    }
+
+    if (isDummyTemplate) {
+      fallbackConfig.totalRequests = clampInt(
+        dummyControl?.totalRequests,
+        1,
+        DEFAULT_DUMMY_CONTROL.totalRequests
+      );
+    }
+
     try {
-      if (testMode === 'simulated') {
-        runSimulatedTest(fallbackConfig);
+      if (testMode === 'simulated' || isDummyTemplate) {
+        if (isDummyTemplate) {
+          runDummyTest(fallbackConfig);
+        } else {
+          runSimulatedTest(fallbackConfig);
+        }
         return;
       }
 
       if (defaultTestConfig) {
-        await executeDefaultConfigTest(defaultTestConfig);
+        // Clone config and apply safe mode if needed
+        const configToUse = { ...defaultTestConfig };
+        if (safeModeEnabled && safeRequestCount !== null) {
+          configToUse.totalRequests = Math.min(
+            parseInt(configToUse.totalRequests || 40, 10),
+            safeRequestCount
+          );
+        }
+        await executeDefaultConfigTest(configToUse);
         return;
       }
 
@@ -571,7 +827,8 @@ export default function ApiDashboardView({ template }) {
           prev?.timeoutMs === next.timeoutMs &&
           prev?.body === next.body;
 
-        const sameHeaders = JSON.stringify(prev?.headers || []) === JSON.stringify(next.headers || []);
+        const sameHeaders =
+          JSON.stringify(prev?.headers || []) === JSON.stringify(next.headers || []);
         const sameQueryParams =
           JSON.stringify(prev?.queryParams || []) === JSON.stringify(next.queryParams || []);
 
@@ -588,11 +845,11 @@ export default function ApiDashboardView({ template }) {
   // Triggered when a test job starts
   const handleTestStarted = (jobId) => {
     setShowModal(false);
+    lastAlertedCountRef.current = 0;
+    alertedResultKeysRef.current = new Set();
     setRunning(true);
     setActiveJobId(jobId);
     setLiveResults([]);
-    setTimeline([Math.floor(Date.now() / 1000)]);
-    setSeriesData({ success: [0], rateLimit: [0], error: [0] });
     setSummary(null);
 
     // Try to fetch API limits once at test start (avoids stale closures inside interval)
@@ -600,15 +857,19 @@ export default function ApiDashboardView({ template }) {
       if (!apiLimits.fetched) {
         try {
           const limits = await getApiLimits(template?.id || template?.name || template?.apiUri);
+          // limits structure from backend: { quotaMax, rateMax, windowModel, windowSeconds, cooldownSeconds, source }
           setApiLimits((prev) => ({
             ...prev,
-            quotaDaily: prev.quotaDaily || limits?.quotaDaily || null,
-            rateDaily: prev.rateDaily || limits?.rateDaily || null,
-            quotaSource: prev.quotaSource || (limits?.quotaDaily ? 'runtime' : null),
-            rateSource: prev.rateSource || (limits?.rateDaily ? 'runtime' : null),
+            quotaMax: limits?.quotaMax ?? prev.quotaMax,
+            rateMax: limits?.rateMax ?? prev.rateMax,
+            windowModel: limits?.windowModel ?? prev.windowModel,
+            windowSeconds: limits?.windowSeconds ?? prev.windowSeconds,
+            cooldownSeconds: limits?.cooldownSeconds ?? prev.cooldownSeconds,
+            source: limits?.source ?? prev.source,
             fetched: true,
           }));
         } catch (e) {
+          console.warn('[startTest] Could not fetch API limits:', e?.message || e);
           setApiLimits((prev) => ({ ...prev, fetched: true }));
         }
       }
@@ -643,15 +904,15 @@ export default function ApiDashboardView({ template }) {
       setLiveResults(finalJob.results || []);
 
       // Try to extract daily limit from response bodies
-      if (!apiLimits.quotaDaily && finalJob.results && finalJob.results.length > 0) {
+      if (!apiLimits.quotaMax && finalJob.results && finalJob.results.length > 0) {
         for (const result of finalJob.results) {
           if (result.response) {
             const extractedLimit = extractDailyLimitFromResponse(result.response);
             if (extractedLimit) {
               setApiLimits((prev) => ({
                 ...prev,
-                quotaDaily: prev.quotaDaily || extractedLimit,
-                quotaSource: prev.quotaSource || (extractedLimit ? 'response' : null),
+                quotaMax: prev.quotaMax || extractedLimit,
+                source: prev.source || (extractedLimit ? 'response' : 'none'),
                 fetched: true,
               }));
               break; // Use the first found limit
@@ -667,6 +928,8 @@ export default function ApiDashboardView({ template }) {
         results: finalJob.results || [],
         summary: finalJob.summary || {},
       };
+
+      notifyRateLimitAnd4xx(finalJob.results || []);
       console.log('[ApiDashboardView] Storing test in history:', testData);
       addTestResult(testData);
       console.log('[ApiDashboardView] History after adding:', history.length + 1, 'tests');
@@ -681,190 +944,387 @@ export default function ApiDashboardView({ template }) {
   const processResults = (results) => {
     if (!results || results.length === 0) return;
 
-    // Group results by second and keep each status bucket explicit for visual feedback.
-    const secondsMap = {};
-    results.forEach((r) => {
-      const ts = Math.floor(new Date(r.timestamp).getTime() / 1000);
-      if (!secondsMap[ts]) {
-        secondsMap[ts] = { success: 0, rateLimit: 0, error: 0 };
-      }
-
-      if (r.status === 'rate_limited' || r.statusCode === 429) {
-        secondsMap[ts].rateLimit += 1;
-      } else if (r.status === 'ok' || (r.statusCode >= 200 && r.statusCode < 400)) {
-        secondsMap[ts].success += 1;
-      } else {
-        secondsMap[ts].error += 1;
-      }
-    });
-
-    // Extract and sort timestamps
-    const timestamps = Object.keys(secondsMap)
-      .map(Number)
-      .sort((a, b) => a - b)
-      .slice(-60); // Keep last 60 seconds
-
-    if (timestamps.length === 0) return;
-
-    // Build series data for each timestamp
-    const successSeries = timestamps.map((ts) => secondsMap[ts]?.success || 0);
-    const rateLimitSeries = timestamps.map((ts) => secondsMap[ts]?.rateLimit || 0);
-    const errorSeries = timestamps.map((ts) => secondsMap[ts]?.error || 0);
-
-    setTimeline(timestamps);
-    setSeriesData({
-      success: successSeries,
-      rateLimit: rateLimitSeries,
-      error: errorSeries,
-    });
+    // Alert on any newly-received 4XX/rate-limited responses (runs only for new slice)
+    const newResults = results.slice(lastAlertedCountRef.current);
+    notifyRateLimitAnd4xx(newResults);
+    lastAlertedCountRef.current = results.length;
 
     setLiveResults(results);
   };
 
-  /**
-   * Get opportunity panel data from historical aggregated data
-   */
-  const getOpportunityData = useMemo(() => {
-    const cumulativeData = getCumulativeOverTime(granularity);
-    return {
-      timestamps: cumulativeData.timestamps || [],
-      cumulativeCounts: cumulativeData.cumulativeCounts || [],
-    };
-  }, [granularity, getCumulativeOverTime, history]);
+  const capacityResults = useMemo(() => {
+    const historicalResults = history.flatMap((entry) =>
+      Array.isArray(entry?.results) ? entry.results : []
+    );
+
+    if (running) {
+      return [...historicalResults, ...liveResults];
+    }
+
+    return historicalResults.length > 0 ? historicalResults : liveResults;
+  }, [history, liveResults, running]);
 
   const cooldownSpans = useMemo(
-    () =>
-      buildCooldownSpans(liveResults, rateUsageModel.cooldownSeconds, rateUsageModel.windowModel),
-    [liveResults, rateUsageModel]
+    () => buildCooldownSpans(capacityResults, apiLimits.cooldownSeconds, apiLimits.windowModel),
+    [capacityResults, apiLimits.cooldownSeconds, apiLimits.windowModel]
   );
 
-  const historicalInstantData = useMemo(() => {
-    const granularitySeconds = Math.max(1, Math.floor(parseGranularity(granularity) / 1000));
-    const histTs = (getOpportunityData.timestamps || []).map((ts) =>
-      ts > 10000000000 ? Math.floor(ts / 1000) : ts
-    );
-    const histCum = getOpportunityData.cumulativeCounts || [];
+  // Check if currently in cooldown (usable anywhere in component)
+  const isCurrentlyInCooldown = useMemo(() => {
+    return cooldownTimeRemaining > 0;
+  }, [cooldownTimeRemaining]);
 
-    const histMap = new Map();
-    histTs.forEach((ts, idx) => histMap.set(ts, histCum[idx] || 0));
+  // Safe mode: calculate safe request count (remaining capacity before rate limit)
+  const safeRequestCount = useMemo(() => {
+    if (!safeModeEnabled) return null;
 
-    // Keep the live evolution tied to the selected granularity so only the active
-    // bucket keeps changing while previous points remain stable.
-    const liveCountByBucket = {};
-    liveResults.forEach((r) => {
+    const rateLimit = apiLimits?.rateMax || apiLimits?.quotaMax || template?.quotaLimit;
+    if (!rateLimit) return null;
+
+    // Sum accumulated requests in current window
+    const accumulatedRequests = capacityResults.reduce((sum) => sum + 1, 0);
+    const remaining = Math.max(1, rateLimit - accumulatedRequests);
+
+    return remaining;
+  }, [safeModeEnabled, apiLimits, template?.quotaLimit, capacityResults]);
+
+  // Traffic chart: per-second instant bars + rolling window line + rate limit + cooldown fill
+  const trafficChartData = useMemo(() => {
+    const windowSeconds = Math.max(5, Number(apiLimits?.windowSeconds) || 30);
+    const rateLimit = apiLimits?.rateMax || apiLimits?.quotaMax || template?.quotaLimit || null;
+
+    if (!capacityResults || capacityResults.length === 0) {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        data: [[now], [null], [0], rateLimit ? [rateLimit] : [null], [null]],
+        maxY: rateLimit || 1,
+        windowSeconds,
+      };
+    }
+
+    // Per-second bucket counts
+    const countBySecond = {};
+    const has4xxBySecond = {};
+    capacityResults.forEach((r) => {
       const ts = Math.floor(new Date(r.timestamp).getTime() / 1000);
-      const bucketTs = Math.floor(ts / granularitySeconds) * granularitySeconds;
-      liveCountByBucket[bucketTs] = (liveCountByBucket[bucketTs] || 0) + 1;
+      countBySecond[ts] = (countBySecond[ts] || 0) + 1;
+      if (r.statusCode >= 400 && r.statusCode < 500) has4xxBySecond[ts] = true;
     });
 
-    const liveBuckets = Object.keys(liveCountByBucket)
+    const seconds = Object.keys(countBySecond)
       .map(Number)
       .sort((a, b) => a - b);
-    const histBase = histCum.length > 0 ? histCum[histCum.length - 1] : 0;
+    if (seconds.length === 0) {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        data: [[now], [null], [0], rateLimit ? [rateLimit] : [null], [null]],
+        maxY: rateLimit || 1,
+        windowSeconds,
+      };
+    }
 
-    let acc = histBase;
-    const liveCumMap = new Map();
-    liveBuckets.forEach((ts) => {
-      acc += liveCountByBucket[ts];
-      liveCumMap.set(ts, acc);
+    // Include cooldown span boundaries as x-axis points for clean fill areas
+    const cooldownBoundaries = cooldownSpans.flatMap((span) => [span.start, span.end]);
+    const x = [...new Set([...seconds, ...cooldownBoundaries])].sort((a, b) => a - b);
+
+    // Rolling window line — resets hard on cooldown, 4XX or when reaching rate limit.
+    const breachedBySecond = {};
+    let windowBuffer = [];
+    const rolling = x.map((ts) => {
+      const inCooldown = cooldownSpans.some((s) => ts >= s.start && ts <= s.end);
+      if (inCooldown) {
+        windowBuffer = [];
+        return 0;
+      }
+      const count = countBySecond[ts] || 0;
+      windowBuffer.push({ ts, count });
+      windowBuffer = windowBuffer.filter((e) => e.ts > ts - windowSeconds);
+      const sum = windowBuffer.reduce((s, e) => s + e.count, 0);
+      const reachedRateLimit = Boolean(rateLimit && sum >= rateLimit);
+      if (has4xxBySecond[ts] || reachedRateLimit) {
+        breachedBySecond[ts] = true;
+        windowBuffer = [];
+        return 0;
+      }
+      return sum;
     });
 
-    const cooldownBoundaries = cooldownSpans.flatMap((span) => [span.start, span.end]);
-    const x = [...new Set([...histTs, ...liveBuckets, ...cooldownBoundaries])].sort(
+    // Instant bars — drop to 0 during cooldown or any 4XX/rate breach second.
+    const instant = x.map((ts) => {
+      const inCooldown = cooldownSpans.some((s) => ts >= s.start && ts <= s.end);
+      if (inCooldown || has4xxBySecond[ts] || breachedBySecond[ts]) {
+        return 0;
+      }
+      return countBySecond[ts] || 0;
+    });
+
+    // Fixed rate limit horizontal line
+    const fixedRateLine = rateLimit ? x.map(() => rateLimit) : x.map(() => null);
+
+    // Cooldown fill overlay
+    const maxY = Math.max(1, rateLimit || 0, ...rolling, ...instant);
+    const cooldownOverlay = x.map((ts) =>
+      cooldownSpans.some((s) => ts >= s.start && ts <= s.end) ? maxY * 1.1 : null
+    );
+
+    // Time scale filtering for X axis readability
+    const scaleToSeconds = {
+      '5m': 5 * 60,
+      '15m': 15 * 60,
+      '30m': 30 * 60,
+      '1h': 60 * 60,
+      '6h': 6 * 60 * 60,
+      '24h': 24 * 60 * 60,
+      all: null,
+    };
+    const selectedWindowSeconds = scaleToSeconds[trafficTimeScale] ?? scaleToSeconds['1h'];
+
+    if (selectedWindowSeconds) {
+      const latestTs = x[x.length - 1];
+      const windowStartTs = latestTs - selectedWindowSeconds;
+      const firstInWindowIdx = x.findIndex((ts) => ts >= windowStartTs);
+      const startIdx = firstInWindowIdx > 0 ? firstInWindowIdx - 1 : Math.max(0, firstInWindowIdx);
+
+      const visibleX = x.slice(startIdx);
+      const visibleInstant = instant.slice(startIdx);
+      const visibleRolling = rolling.slice(startIdx);
+      const visibleRate = fixedRateLine.slice(startIdx);
+      const visibleCooldown = cooldownOverlay.slice(startIdx);
+
+      return {
+        data: [visibleX, visibleInstant, visibleRolling, visibleRate, visibleCooldown],
+        maxY,
+        windowSeconds,
+      };
+    }
+
+    return {
+      data: [x, instant, rolling, fixedRateLine, cooldownOverlay],
+      maxY,
+      windowSeconds,
+    };
+  }, [capacityResults, cooldownSpans, apiLimits, template?.quotaLimit, trafficTimeScale]);
+
+  const capacityChartData = useMemo(() => {
+    const configuredIntervalSeconds =
+      capacityViewInterval === 'auto'
+        ? Number(apiLimits?.windowSeconds) || 60
+        : Number(capacityViewInterval);
+    const intervalSeconds = Math.max(1, Math.floor(configuredIntervalSeconds));
+    const countByBucket = {};
+    const has4xxByBucket = {};
+
+    // Historical buckets stay fixed; live buckets only evolve at the tail of the chart.
+    capacityResults.forEach((r) => {
+      const ts = Math.floor(new Date(r.timestamp).getTime() / 1000);
+      const bucketTs = Math.floor(ts / intervalSeconds) * intervalSeconds;
+
+      countByBucket[bucketTs] = (countByBucket[bucketTs] || 0) + 1;
+
+      if (r.statusCode >= 400 && r.statusCode < 500) {
+        has4xxByBucket[bucketTs] = true;
+      }
+    });
+
+    const buckets = Object.keys(countByBucket)
+      .map(Number)
+      .sort((a, b) => a - b);
+    const baseCooldownBoundaries = cooldownSpans.flatMap((span) => [span.start, span.end]);
+
+    const firstTs = buckets.length > 0 ? buckets[0] : Math.floor(Date.now() / 1000);
+    const lastTs = buckets.length > 0 ? buckets[buckets.length - 1] : firstTs;
+    // Calculate limit first (needed for reset and fixed red limit line)
+    const rateLimit = apiLimits?.rateMax || apiLimits?.quotaMax || template?.quotaLimit || null;
+    const fallbackRateLimit = Math.max(
+      10,
+      ...Object.values(countByBucket),
+      capacityResults.length || 0
+    );
+    const fixedRateLine = rateLimit || fallbackRateLimit;
+    const cooldownDurationSeconds = Math.max(
+      1,
+      Number(apiLimits?.cooldownSeconds) || intervalSeconds
+    );
+
+    const isInSpan = (ts, span) => ts >= span.start && ts <= span.end;
+    const isInAnySpan = (ts, spans) => spans.some((span) => isInSpan(ts, span));
+
+    // Infer cooldown spans when we exceed rate in the accumulation logic.
+    const inferredCooldownSpans = [];
+
+    let cumulativePreview = 0;
+    buckets.forEach((ts) => {
+      // During backend-reported cooldown there should be no effective traffic.
+      if (isInAnySpan(ts, cooldownSpans)) {
+        return;
+      }
+
+      cumulativePreview += countByBucket[ts] || 0;
+      const exceededRate = Boolean(fixedRateLine && cumulativePreview >= fixedRateLine);
+      const got4xx = Boolean(has4xxByBucket[ts]);
+
+      if (exceededRate || got4xx) {
+        inferredCooldownSpans.push({
+          start: ts,
+          end: ts + cooldownDurationSeconds,
+        });
+        cumulativePreview = 0;
+      }
+    });
+
+    const inferredCooldownBoundaries = inferredCooldownSpans.flatMap((span) => [
+      span.start,
+      span.end,
+    ]);
+    const cooldownBoundaries = [...baseCooldownBoundaries, ...inferredCooldownBoundaries];
+    const allCooldownSpans = [...cooldownSpans, ...inferredCooldownSpans];
+    // Force a visual drop to zero right after cooldown starts.
+    const cooldownDropMarkers = allCooldownSpans.map((span) => Math.min(span.end, span.start + 1));
+    const x = [...new Set([...buckets, ...cooldownBoundaries, ...cooldownDropMarkers])].sort(
       (a, b) => a - b
     );
 
     if (x.length === 0) {
       const now = Math.floor(Date.now() / 1000);
       return {
-        data: [[now], [0], [0], [null]],
-        maxY: 1,
-      };
-    }
-
-    let runningHist = 0;
-    let runningLive = histBase;
-    const cumulative = x.map((ts) => {
-      if (histMap.has(ts)) runningHist = histMap.get(ts);
-      if (liveCumMap.has(ts)) runningLive = liveCumMap.get(ts);
-      return Math.max(runningHist, runningLive);
-    });
-    const instant = x.map((ts) => liveCountByBucket[ts] || 0);
-
-    const latestTs = x[x.length - 1];
-    const windowStartTs = latestTs - granularitySeconds;
-    const firstInWindowIdx = x.findIndex((ts) => ts >= windowStartTs);
-    const startIdx = firstInWindowIdx > 0 ? firstInWindowIdx - 1 : Math.max(0, firstInWindowIdx);
-
-    const visibleX = x.slice(startIdx);
-    const visibleCumulative = cumulative.slice(startIdx);
-    const visibleInstant = instant.slice(startIdx);
-    const maxY = Math.max(1, ...visibleCumulative, ...visibleInstant);
-    const cooldownOverlay = visibleX.map((ts) =>
-      cooldownSpans.some((span) => ts >= span.start && ts <= span.end) ? maxY * 0.85 : null
-    );
-
-    return {
-      data: [visibleX, visibleCumulative, visibleInstant, cooldownOverlay],
-      maxY,
-    };
-  }, [getOpportunityData, liveResults, cooldownSpans, granularity]);
-
-  const capacityChartData = useMemo(() => {
-    const requestCountBySecond = {};
-    liveResults.forEach((r) => {
-      const ts = Math.floor(new Date(r.timestamp).getTime() / 1000);
-      requestCountBySecond[ts] = (requestCountBySecond[ts] || 0) + 1;
-    });
-
-    const seconds = Object.keys(requestCountBySecond)
-      .map(Number)
-      .sort((a, b) => a - b);
-    const cooldownBoundaries = cooldownSpans.flatMap((span) => [span.start, span.end]);
-    const x = [...new Set([...seconds, ...cooldownBoundaries])].sort((a, b) => a - b);
-
-    if (x.length === 0) {
-      const now = Math.floor(Date.now() / 1000);
-      return {
-        data: [[now], [0], [0], [0], [null]],
+        data: [[now], [0], [fixedRateLine], [null]],
         maxY: 1,
       };
     }
 
     let cumulative = 0;
     const accumulatedTraffic = x.map((ts) => {
-      cumulative += requestCountBySecond[ts] || 0;
-      return cumulative;
-    });
+      const inCooldown = isInAnySpan(ts, allCooldownSpans);
+      if (inCooldown) {
+        // Wasted capacity period: no requests should be counted.
+        return 0;
+      }
 
-    const quotaLimit =
-      apiLimits?.quotaDaily ||
-      template?.quotaLimit ||
-      Math.max(50, accumulatedTraffic[accumulatedTraffic.length - 1] + 20);
-    const maxTime = x[x.length - 1] - x[0] || 1;
-    const avgRate = accumulatedTraffic[accumulatedTraffic.length - 1] / maxTime;
-    const idealTraffic = x.map((ts) => {
-      const elapsed = Math.max(0, ts - x[0]);
-      const expected = Math.round(elapsed * avgRate);
-      return Math.min(expected, quotaLimit);
-    });
+      cumulative += countByBucket[ts] || 0;
+      const currentValue = cumulative;
 
-    const quotaSeries = x.map(() => quotaLimit);
-    const maxY = Math.max(1, quotaLimit, ...accumulatedTraffic, ...idealTraffic);
-    const cooldownOverlay = x.map((ts) =>
-      cooldownSpans.some((span) => ts >= span.start && ts <= span.end) ? maxY * 0.85 : null
-    );
+      // Reset counter when reaching limit or on 4XX/rate_limited feedback.
+      const shouldResetBy4xx = has4xxByBucket[ts];
+      const shouldResetByLimit = Boolean(fixedRateLine && cumulative >= fixedRateLine);
+
+      if (shouldResetBy4xx || shouldResetByLimit) {
+        cumulative = 0;
+      }
+
+      return currentValue;
+    });
+    const fixedRateSeries = x.map(() => fixedRateLine);
+    const maxY = Math.max(1, fixedRateLine, ...accumulatedTraffic);
+
+    const cooldownOverlay = x.map((ts) => {
+      return isInAnySpan(ts, allCooldownSpans) ? maxY * 1.05 : null;
+    });
 
     return {
-      data: [x, accumulatedTraffic, idealTraffic, quotaSeries, cooldownOverlay],
+      data: [x, accumulatedTraffic, fixedRateSeries, cooldownOverlay],
       maxY,
-      quotaLimit,
+      quotaLimit: fixedRateLine,
+      intervalSeconds,
     };
-  }, [liveResults, cooldownSpans, apiLimits, template?.quotaLimit]);
+  }, [capacityResults, cooldownSpans, apiLimits, template?.quotaLimit, capacityViewInterval]);
+
+  // Cooldown toast ID ref so we can update/remove the same toast
+  const cooldownToastIdRef = useRef(null);
+
+  // Cooldown timer: update remaining time every second + drive toast
+  useEffect(() => {
+    if (!activeCooldownEnd) {
+      setCooldownTimeRemaining(0);
+      // Remove stale cooldown toast if any
+      if (cooldownToastIdRef.current !== null) {
+        toast.removeToast(cooldownToastIdRef.current);
+        cooldownToastIdRef.current = null;
+      }
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = Math.max(0, activeCooldownEnd - now);
+      setCooldownTimeRemaining(remaining);
+
+      if (remaining <= 0) {
+        setActiveCooldownEnd(null);
+        if (cooldownTimerInterval.current) {
+          clearInterval(cooldownTimerInterval.current);
+          cooldownTimerInterval.current = null;
+        }
+        if (cooldownToastIdRef.current !== null) {
+          toast.removeToast(cooldownToastIdRef.current);
+          cooldownToastIdRef.current = null;
+        }
+        return;
+      }
+
+      const msg = `Cooldown activo — sin peticiones por ${remaining}s`;
+      if (cooldownToastIdRef.current === null) {
+        // Create persistent toast (duration 0 = no auto-dismiss)
+        cooldownToastIdRef.current = toast.addToast(msg, 'warning', 0, 'cooldown-active');
+      } else {
+        // Update existing toast message in place
+        toast.updateToast(cooldownToastIdRef.current, msg);
+      }
+    };
+
+    updateTimer();
+    cooldownTimerInterval.current = setInterval(updateTimer, 1000);
+
+    return () => {
+      if (cooldownTimerInterval.current) {
+        clearInterval(cooldownTimerInterval.current);
+        cooldownTimerInterval.current = null;
+      }
+    };
+  }, [activeCooldownEnd, toast]);
+
+  // Detect latest cooldown span and activate timer
+  useEffect(() => {
+    const allCooldownSpans = cooldownSpans || [];
+    if (allCooldownSpans.length === 0) {
+      setActiveCooldownEnd(null);
+      return;
+    }
+
+    const latestSpan = allCooldownSpans[allCooldownSpans.length - 1];
+    if (latestSpan && latestSpan.end) {
+      setActiveCooldownEnd(latestSpan.end);
+    }
+  }, [cooldownSpans]);
+
+  useEffect(() => {
+    setResolvedIsDummy(Boolean(template?.isDummy));
+    setResolvedDummyConfig(template?.dummyConfig || null);
+  }, [template]);
+
+  useEffect(() => {
+    const hydrateTemplateFlags = async () => {
+      if (!template?.id) {
+        setResolvedIsDummy(Boolean(template?.isDummy));
+        setResolvedDummyConfig(template?.dummyConfig || null);
+        return;
+      }
+
+      try {
+        const latestTemplate = await getTemplateRecord(template.id);
+        setResolvedIsDummy(Boolean(latestTemplate?.isDummy));
+        setResolvedDummyConfig(latestTemplate?.dummyConfig || null);
+      } catch (err) {
+        console.warn('[ApiDashboardView] Could not hydrate template flags:', err?.message || err);
+      }
+    };
+
+    hydrateTemplateFlags();
+  }, [template?.id]);
 
   useEffect(() => {
     return () => {
       if (pollInterval.current) clearInterval(pollInterval.current);
+      if (cooldownTimerInterval.current) clearInterval(cooldownTimerInterval.current);
     };
   }, []);
 
@@ -875,6 +1335,131 @@ export default function ApiDashboardView({ template }) {
       templateId: template?.id,
     });
   }, [history, template?.id]);
+
+  const handleDummyControlChange = useCallback((key, value) => {
+    setDummyControl((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const applyDummyPreset = useCallback((presetName) => {
+    if (presetName === 'stress') {
+      setDummyControl({
+        quotaMax: 2000,
+        rateMax: 80,
+        windowModel: 'FIXED_WINDOW',
+        windowSeconds: 60,
+        cooldownSeconds: 45,
+        totalRequests: 180,
+      });
+      return;
+    }
+
+    if (presetName === 'recovery') {
+      setDummyControl({
+        quotaMax: 1000,
+        rateMax: 25,
+        windowModel: 'SLIDING_WINDOW',
+        windowSeconds: 60,
+        cooldownSeconds: 20,
+        totalRequests: 60,
+      });
+      return;
+    }
+
+    setDummyControl(DEFAULT_DUMMY_CONTROL);
+  }, []);
+
+  const saveDummyControl = useCallback(async () => {
+    if (!template?.id || !isDummyTemplate) return;
+
+    setSavingDummyControl(true);
+    try {
+      const normalized = {
+        quotaMax: clampInt(dummyControl?.quotaMax, 1, DEFAULT_DUMMY_CONTROL.quotaMax),
+        rateMax: clampInt(dummyControl?.rateMax, 1, DEFAULT_DUMMY_CONTROL.rateMax),
+        windowModel:
+          dummyControl?.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+        windowSeconds: clampInt(
+          dummyControl?.windowSeconds,
+          1,
+          DEFAULT_DUMMY_CONTROL.windowSeconds
+        ),
+        cooldownSeconds: clampInt(
+          dummyControl?.cooldownSeconds,
+          1,
+          DEFAULT_DUMMY_CONTROL.cooldownSeconds
+        ),
+        totalRequests: clampInt(
+          dummyControl?.totalRequests,
+          1,
+          DEFAULT_DUMMY_CONTROL.totalRequests
+        ),
+      };
+
+      await updateTemplateRecord(template.id, {
+        name: template.name,
+        authMethod: template.authMethod || '',
+        authCredential: template.authCredential || '',
+        apiUri: template.apiUri,
+        datasheet: template.datasheet,
+        status: template.status || 'active',
+        isDummy: true,
+        dummyConfig: normalized,
+      });
+
+      setResolvedIsDummy(true);
+      setResolvedDummyConfig(normalized);
+
+      toast.success('Configuracion Dummy guardada');
+    } catch (err) {
+      toast.error(`No se pudo guardar la configuracion Dummy: ${err.message}`);
+    } finally {
+      setSavingDummyControl(false);
+    }
+  }, [template, template?.id, isDummyTemplate, dummyControl, toast]);
+
+  useEffect(() => {
+    if (!isDummyTemplate) {
+      setDummyControl(DEFAULT_DUMMY_CONTROL);
+      return;
+    }
+
+    const fromTemplate = persistedDummyConfig || {};
+    setDummyControl({
+      quotaMax: clampInt(fromTemplate.quotaMax, 1, DEFAULT_DUMMY_CONTROL.quotaMax),
+      rateMax: clampInt(fromTemplate.rateMax, 1, DEFAULT_DUMMY_CONTROL.rateMax),
+      windowModel:
+        fromTemplate.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+      windowSeconds: clampInt(fromTemplate.windowSeconds, 1, DEFAULT_DUMMY_CONTROL.windowSeconds),
+      cooldownSeconds: clampInt(
+        fromTemplate.cooldownSeconds,
+        1,
+        DEFAULT_DUMMY_CONTROL.cooldownSeconds
+      ),
+      totalRequests: clampInt(fromTemplate.totalRequests, 1, DEFAULT_DUMMY_CONTROL.totalRequests),
+    });
+  }, [template?.id, isDummyTemplate, persistedDummyConfig]);
+
+  // Dummy APIs: force simulated mode and apply local configurable limits so charts
+  // render from dashboard controls without backend dependency.
+  useEffect(() => {
+    if (!isDummyTemplate) return;
+
+    setTestMode('simulated');
+    setApiLimits({
+      quotaMax: clampInt(dummyControl?.quotaMax, 1, DEFAULT_DUMMY_CONTROL.quotaMax),
+      rateMax: clampInt(dummyControl?.rateMax, 1, DEFAULT_DUMMY_CONTROL.rateMax),
+      windowModel:
+        dummyControl?.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+      windowSeconds: clampInt(dummyControl?.windowSeconds, 1, DEFAULT_DUMMY_CONTROL.windowSeconds),
+      cooldownSeconds: clampInt(
+        dummyControl?.cooldownSeconds,
+        1,
+        DEFAULT_DUMMY_CONTROL.cooldownSeconds
+      ),
+      source: 'dummy',
+      fetched: true,
+    });
+  }, [template?.id, isDummyTemplate, dummyControl]);
 
   useEffect(() => {
     const loadDefaultTestConfig = async () => {
@@ -933,8 +1518,18 @@ export default function ApiDashboardView({ template }) {
         body: '',
       };
 
+      if (isDummyTemplate) {
+        fallbackConfig.totalRequests = clampInt(
+          dummyControl?.totalRequests,
+          1,
+          DEFAULT_DUMMY_CONTROL.totalRequests
+        );
+      }
+
       try {
-        if (testMode === 'simulated') {
+        if (isDummyTemplate) {
+          runDummyTest(fallbackConfig);
+        } else if (testMode === 'simulated') {
           runSimulatedTest(fallbackConfig);
         } else if (defaultTestConfig) {
           await executeDefaultConfigTest(defaultTestConfig);
@@ -963,11 +1558,19 @@ export default function ApiDashboardView({ template }) {
         autoRefreshInterval.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefreshEnabled, refreshIntervalSeconds]);
+  }, [
+    autoRefreshEnabled,
+    refreshIntervalSeconds,
+    template?.id,
+    isDummyTemplate,
+    template?.requestMethod,
+    defaultTestConfig,
+    testMode,
+    dummyControl,
+  ]);
 
   /**
-   * Load datasheet for the template
+   * Load datasheet for the template and fetch API limits from backend
    */
   useEffect(() => {
     const loadDatasheet = async () => {
@@ -978,6 +1581,30 @@ export default function ApiDashboardView({ template }) {
 
       try {
         setLoadingDatasheet(true);
+        // Dummy templates are fully local/mocked from dashboard controls.
+        if (isDummyTemplate) {
+          setDatasheet(template?.datasheet || null);
+          setApiLimits({
+            quotaMax: clampInt(dummyControl?.quotaMax, 1, DEFAULT_DUMMY_CONTROL.quotaMax),
+            rateMax: clampInt(dummyControl?.rateMax, 1, DEFAULT_DUMMY_CONTROL.rateMax),
+            windowModel:
+              dummyControl?.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+            windowSeconds: clampInt(
+              dummyControl?.windowSeconds,
+              1,
+              DEFAULT_DUMMY_CONTROL.windowSeconds
+            ),
+            cooldownSeconds: clampInt(
+              dummyControl?.cooldownSeconds,
+              1,
+              DEFAULT_DUMMY_CONTROL.cooldownSeconds
+            ),
+            source: 'dummy',
+            fetched: true,
+          });
+          return;
+        }
+
         const data = await getTemplateDatasheet(template.id);
         console.log('[ApiDashboardView] Datasheet loaded:', data);
 
@@ -985,97 +1612,51 @@ export default function ApiDashboardView({ template }) {
         const datasheetContent = data?.datasheet || data;
         setDatasheet(datasheetContent);
 
-        const model = extractRateUsageModelFromDatasheet(datasheetContent);
-        setRateUsageModel(model);
-
-        const extracted = extractLimitsFromDatasheet(datasheetContent);
-        if (extracted.quotaMax !== null || extracted.rateMax !== null) {
+        // Fetch structured limits from backend endpoint (replaces local extraction)
+        try {
+          const limits = await getApiLimits(template.id);
+          console.log('[ApiDashboardView] API limits fetched from backend:', limits);
           setApiLimits((prev) => ({
             ...prev,
-            quotaDaily: extracted.quotaMax ?? prev.quotaDaily,
-            rateDaily: extracted.rateMax ?? prev.rateDaily,
-            quotaSource: extracted.quotaMax !== null ? 'datasheet' : prev.quotaSource,
-            rateSource: extracted.rateMax !== null ? 'datasheet' : prev.rateSource,
+            quotaMax: limits?.quotaMax ?? prev.quotaMax,
+            rateMax: limits?.rateMax ?? prev.rateMax,
+            windowModel: limits?.windowModel ?? prev.windowModel,
+            windowSeconds: limits?.windowSeconds ?? prev.windowSeconds,
+            cooldownSeconds: limits?.cooldownSeconds ?? prev.cooldownSeconds,
+            source: limits?.source ?? prev.source,
             fetched: true,
           }));
+        } catch (limitsErr) {
+          console.warn(
+            '[ApiDashboardView] Could not fetch limits:',
+            limitsErr?.message || limitsErr
+          );
+          // Keep previous values, mark as fetched to prevent re-fetch
+          setApiLimits((prev) => ({ ...prev, fetched: true }));
         }
       } catch (err) {
         console.error('Failed to load datasheet:', err);
         setDatasheet(null);
-        setRateUsageModel({
-          windowModel: 'UNKNOWN',
-          cooldownSeconds: 30,
-          windowTypeRaw: null,
-          source: 'fallback',
-        });
       } finally {
         setLoadingDatasheet(false);
       }
     };
 
     loadDatasheet();
-  }, [template?.id]);
-
-  const chartData = useMemo(() => {
-    // Ensure timeline has at least one point and all series have the same length
-    if (!timeline || timeline.length === 0) {
-      return [[Math.floor(Date.now() / 1000)], [0], [0], [0]];
-    }
-    return [timeline, seriesData.success, seriesData.rateLimit, seriesData.error];
-  }, [timeline, seriesData]);
-
-  const historicalInstantOpts = {
-    title: 'Historico + Peticiones en el Instante',
-    width: 850,
-    height: 300,
-    scales: {
-      x: {
-        auto: false,
-        range: [
-          Math.min(...(historicalInstantData.data?.[0] || [Math.floor(Date.now() / 1000)])),
-          Math.max(...(historicalInstantData.data?.[0] || [Math.floor(Date.now() / 1000)])),
-        ],
-      },
-      y: { auto: false, range: [0, historicalInstantData.maxY * 1.2] },
-    },
-    axes: [
-      {
-        label: 'Tiempo',
-        values: (u, vals) => vals.map((v) => formatTimeByGranularity(v * 1000, granularity)),
-      },
-      { label: 'Peticiones', side: 1 },
-    ],
-    series: [
-      { label: 'Tiempo' },
-      { label: 'Acumulado', stroke: '#0284c7', width: 3, fill: 'rgba(2,132,199,0.08)' },
-      {
-        label: 'Request Instantaneo (barras)',
-        stroke: '#059669',
-        fill: 'rgba(5, 150, 105, 0.35)',
-        width: 1,
-        points: { show: false },
-        paths: uPlot.paths.bars({
-          size: [0.65, 80],
-          align: 1,
-        }),
-      },
-      {
-        label: 'Cooldown 4XX',
-        stroke: '#fb923c',
-        width: 0,
-        fill: 'rgba(251,146,60,0.22)',
-        points: { show: false },
-      },
-    ],
-  };
+  }, [template?.id, isDummyTemplate, dummyControl]);
 
   const capacityCooldownOpts = {
     title: 'Capacidad / Cuota y Cooldown',
-    width: 850,
-    height: 300,
+    height: 260,
+    cursor: {
+      drag: {
+        x: true,
+        y: true,
+      },
+    },
     scales: {
       x: {
-        auto: false,
+        auto: true,
         range: [
           Math.min(...(capacityChartData.data?.[0] || [Math.floor(Date.now() / 1000)])),
           Math.max(...(capacityChartData.data?.[0] || [Math.floor(Date.now() / 1000)])),
@@ -1099,43 +1680,34 @@ export default function ApiDashboardView({ template }) {
     ],
     series: [
       { label: 'Tiempo' },
-      { label: 'Trafico Acumulado', stroke: '#0ea5e9', width: 3, fill: 'rgba(14,165,233,0.10)' },
       {
-        label: 'Trafico sin cooldown',
-        stroke: '#ef4444',
-        width: 2,
-        dash: [10, 6],
-        points: { show: false },
+        label: 'Historico acumulado',
+        stroke: '#0ea5e9',
+        width: 3,
+        fill: 'rgba(14,165,233,0.10)',
       },
       {
-        label: 'Limite de cuota',
-        stroke: '#f59e0b',
+        label: 'Rate maximo',
+        stroke: '#ef4444',
         width: 2,
         dash: [6, 6],
         points: { show: false },
       },
       {
-        label: 'Zona cooldown',
+        label: 'Zona cooldown por exceso',
         stroke: '#f43f5e',
         width: 0,
-        fill: 'rgba(244,63,94,0.2)',
+        fill: 'rgba(244,63,94,0.28)',
         points: { show: false },
       },
     ],
-  };
-
-  const sourceLabel = {
-    datasheet: 'Datasheet',
-    template: 'Template',
-    runtime: 'Runtime',
-    response: 'Response',
   };
 
   return (
     <>
       {/* Header & Stats */}
       <div className="w-full p-6 container-max-width mx-auto">
-        <div className="flex flex-col md:flex-row justify-start items-start md:items-center gap-4 mb-8">
+        <div className="flex flex-col md:flex-row justify-start items-start md:items-center gap-4 mb-4">
           <div>
             <h2 className="text-3xl font-black text-text flex items-center gap-3">
               {template?.name}
@@ -1143,35 +1715,63 @@ export default function ApiDashboardView({ template }) {
             <p className="text-slate-400 mt-1 font-mono text-sm">{template?.apiUri}</p>
           </div>
 
-          <BaseButton variant="icon" size="icon" onClick={showEditModal ? () => setShowEditModal(false) : () => setShowEditModal(true)}>
+          <BaseButton
+            variant="icon"
+            size="icon"
+            onClick={showEditModal ? () => setShowEditModal(false) : () => setShowEditModal(true)}
+          >
             <Pencil size={16} />
           </BaseButton>
+        </div>
 
-          <ApiDashboardActionBar
-            testMode={testMode}
-            running={running}
-            loadingDefaultConfig={loadingDefaultConfig}
-            loadingDatasheet={loadingDatasheet}
-            showDatasheet={showDatasheet}
-            onToggleMode={() => setTestMode((prev) => (prev === 'real' ? 'simulated' : 'real'))}
-            onEdit={() => setShowEditModal(true)}
-            onToggleDatasheet={() => setShowDatasheet(!showDatasheet)}
-            onRun={handlePrimaryTestClick}
-            onConfigure={() => setShowModal(true)}
-          />
+        {/* Stats Section */}
+        <div className="w-full py-8 container-max-width mx-auto">
+          <div className="stats-grid">
+            <StatCard
+              title="Total Requests"
+              value={getCurrentStats().total}
+              icon={<Activity size={20} />}
+              color="text-text"
+            />
+            <StatCard
+              title="Success"
+              value={getCurrentStats().success}
+              icon={<CheckCircle size={20} />}
+              color="text-text"
+            />
+            <StatCard
+              title="Rate Limited"
+              value={getCurrentStats().rateLimited}
+              icon={<AlertCircle size={20} />}
+              color="text-text"
+            />
+            <StatCard
+              title="Avg Latency"
+              value={`${getCurrentStats().avgLatency}ms`}
+              icon={<Clock size={20} />}
+              color="text-text"
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-3 items-center mb-4">
+          {isDummyTemplate && (
+            <span className="badge badge-warning text-xs font-semibold">
+              API Dummy — Modo Simulado
+            </span>
+          )}
           <span className="badge badge-info text-xs">
             Modelo:{' '}
-            {rateUsageModel.windowModel === 'SLIDING_WINDOW'
-              ? 'Ventana Deslizante'
-              : rateUsageModel.windowModel === 'FIXED_WINDOW'
-                ? 'Ventana Fija'
-                : 'No detectado'}
+            {apiLimits.windowModel === 'UNLIMITED'
+              ? 'Ilimitado'
+              : apiLimits.windowModel === 'SLIDING_WINDOW'
+                ? 'Ventana Deslizante'
+                : apiLimits.windowModel === 'FIXED_WINDOW'
+                  ? 'Ventana Fija'
+                  : 'No detectado'}
           </span>
           <span className="badge badge-info text-xs">
-            Cooldown base: {rateUsageModel.cooldownSeconds}s
+            Cooldown base: {apiLimits.cooldownSeconds}s
           </span>
           <span className="badge badge-info text-xs">
             Test por defecto:{' '}
@@ -1183,210 +1783,123 @@ export default function ApiDashboardView({ template }) {
           </span>
         </div>
 
-        <div className="flex flex-wrap gap-3 items-center mb-4">
-          <AutoRefreshSelector
-            enabled={autoRefreshEnabled}
-            interval={refreshIntervalSeconds}
-            onToggle={handleAutoRefreshToggle}
-            onIntervalChange={handleRefreshIntervalChange}
-            disabled={loadingDefaultConfig}
+        {/* Action header: ActionBar + SafeMode/AutoRefresh in one row */}
+        <div className="flex flex-row gap-2 items-center w-full justify-between mb-4 bg-primary p-2 rounded-lg border border-border">
+          <SafeModeAutoRefreshCard
+            safeModeEnabled={safeModeEnabled}
+            onSafeModeChange={setSafeModeEnabled}
+            safeRequestCount={safeRequestCount}
+            running={running}
+            autoRefreshEnabled={autoRefreshEnabled}
+            refreshIntervalSeconds={refreshIntervalSeconds}
+            onToggleAutoRefresh={handleAutoRefreshToggle}
+            onRefreshIntervalChange={handleRefreshIntervalChange}
+            loadingDefaultConfig={loadingDefaultConfig}
+          />
+          <ApiDashboardActionBar
+            testMode={testMode}
+            running={running}
+            inCooldown={isCurrentlyInCooldown}
+            loadingDefaultConfig={loadingDefaultConfig}
+            loadingDatasheet={loadingDatasheet}
+            showDatasheet={showDatasheet}
+            onToggleMode={() => {
+              if (!isDummyTemplate) {
+                setTestMode((prev) => (prev === 'real' ? 'simulated' : 'real'));
+              }
+            }}
+            onEdit={() => setShowEditModal(true)}
+            onToggleDatasheet={() => setShowDatasheet(!showDatasheet)}
+            onRun={handlePrimaryTestClick}
+            onConfigure={() => setShowModal(true)}
+            isDummyTemplate={isDummyTemplate}
           />
         </div>
+
+        {isDummyTemplate && (
+          <DummyApiControlPanel
+            values={dummyControl}
+            onChange={handleDummyControlChange}
+            disabled={running}
+            onApplyPreset={applyDummyPreset}
+            onSave={saveDummyControl}
+            saving={savingDummyControl}
+          />
+        )}
       </div>
 
       {showDatasheet && (
-        <div className="fixed right-4 top-24 z-40 w-[min(92vw,560px)] bg-primary">
-          <BaseCard className="max-h-[78vh] overflow-auto border border-border shadow-lg p-2">
-            <div className="flex-grow-1 card-header">
-              <h3 className="text-lg font-bold text-text flex items-center gap-2">
-                <FileText size={20} />
-                Datasheet
-              </h3>
-            </div>
+        <div className="modal-overlay z-50" onClick={() => setShowDatasheet(false)}>
+          <div className="modal-panel modal-large" onClick={(e) => e.stopPropagation()}>
+            <BaseCard>
+              <div className="flex-grow-1 card-header overflow-auto border border-border shadow-lg p-2">
+                <h3 className="text-lg font-bold text-text flex items-center gap-2">
+                  <FileText size={20} />
+                  Datasheet
+                </h3>
+                <BaseButton variant="icon" size="icon" onClick={() => setShowDatasheet(false)}>
+                  <X size={16} />
+                </BaseButton>
+              </div>
 
-            {loadingDatasheet ? (
-              <p className="text-slate-400 text-center py-6">Cargando datasheet...</p>
-            ) : !datasheet ? (
-              <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-                <div className="flex gap-3">
-                  <AlertCircle className="text-yellow-500 flex-shrink-0" size={20} />
-                  <div>
-                    <h4 className="font-semibold text-yellow-400 mb-2">
-                      No se encontro informacion de datasheet
-                    </h4>
-                    <p className="text-sm text-yellow-200/80">
-                      Esta API no tiene un datasheet YAML configurado. Los datasheets contienen
-                      informacion importante como autenticacion, rate limiting, parametros y
-                      endpoints disponibles.
-                    </p>
+              {loadingDatasheet ? (
+                <p className="text-slate-400 text-center py-6">Cargando datasheet...</p>
+              ) : !datasheet ? (
+                <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+                  <div className="flex gap-3">
+                    <AlertCircle className="text-yellow-500 flex-shrink-0" size={20} />
+                    <div>
+                      <h4 className="font-semibold text-yellow-400 mb-2">
+                        No se encontro informacion de datasheet
+                      </h4>
+                      <p className="text-sm text-yellow-200/80">
+                        Esta API no tiene un datasheet YAML configurado. Los datasheets contienen
+                        informacion importante como autenticacion, rate limiting, parametros y
+                        endpoints disponibles.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <DatasheetViewer
-                datasheet={datasheet}
-                templateName={template?.name}
-                templateUri={template?.apiUri}
-              />
-            )}
-          </BaseCard>
+              ) : (
+                <DatasheetViewer
+                  datasheet={datasheet}
+                  templateName={template?.name}
+                  templateUri={template?.apiUri}
+                />
+              )}
+            </BaseCard>
+          </div>
         </div>
       )}
-
-      {/* Stats Section */}
-      <div className="w-full p-6 container-max-width mx-auto">
-        <div className="stats-grid mb-6">
-          <StatCard
-            title="Total Requests"
-            value={getCurrentStats().total}
-            icon={<Activity size={20} />}
-            color="text-text"
-          />
-          <StatCard
-            title="Success"
-            value={getCurrentStats().success}
-            icon={<Activity size={20} />}
-            color="text-text"
-          />
-          <StatCard
-            title="Rate Limited"
-            value={getCurrentStats().rateLimited}
-            icon={<AlertCircle size={20} />}
-            color="text-text"
-          />
-          <StatCard
-            title="Avg Latency"
-            value={`${getCurrentStats().avgLatency}ms`}
-            icon={<Clock size={20} />}
-            color="text-text"
-          />
-        </div>
-      </div>
 
       <ApiDashboardTabs activeTab={activeTab} onChange={setActiveTab} />
 
       {activeTab === 'charts' && (
         <>
-          <div className="flex flex-row h-1/2 gap-4 container-max-width mx-auto my-6">
-            <BaseCard className="w-full h-full p-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold">
-                  Peticiones Realizadas
-                </h3>
-                <GranularitySelector value={granularity} onChange={setGranularity} />
-              </div>
-              <div className="flex justify-center w-full h-full overflow-x-auto">
-                <UPlotChart options={historicalInstantOpts} data={historicalInstantData.data} />
-              </div>
-              <div className="mt-3 text-xs text-slate-400 flex flex-wrap gap-4">
-                <span>Cooldown detectado por respuestas 4XX (especialmente 429).</span>
-                <span>
-                  Regulacion:{' '}
-                  {rateUsageModel.windowModel === 'SLIDING_WINDOW'
-                    ? 'Deslizante'
-                    : rateUsageModel.windowModel === 'FIXED_WINDOW'
-                      ? 'Fija'
-                      : 'No detectada'}
-                </span>
-              </div>
-            </BaseCard>
-
-            <BaseCard className="gap-2 h-full">
-              <h3 className="text-lg font-bold text-text text-center mb-2">API Limits & Quota</h3>
-              <ProgressBar
-                label="Request Quota Usage"
-                current={summary?.total || liveResults.length}
-                max={apiLimits?.quotaDaily || template?.quotaLimit || 1000}
-                unit="reqs"
-                color="bg-gradient-to-r from-cyan-500 to-blue-500"
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 container-max-width mx-auto my-6">
+            <div className="lg:col-span-2">
+              <HistoricalInstantChartCard
+                trafficChartData={trafficChartData}
+                trafficTimeScale={trafficTimeScale}
+                onTrafficTimeScaleChange={setTrafficTimeScale}
               />
+            </div>
 
-              <ProgressBar
-                label="Efficiency Score"
-                current={summary?.ok || liveResults.filter((r) => r.status === 'ok').length}
-                max={summary?.total || liveResults.length || 1}
-                unit="success"
-                color="bg-gradient-to-r from-emerald-500 to-teal-500"
-              />
-              <hr className="my-4" />
-              <div className="flex flex-col gap-4 align-center items-center">
-                <div className="limits-panel">
-                  <h5 className="text-sm font-bold text-text mb-2">Applied Limits</h5>
-                  <div className="grid grid-cols-1 gap-2 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted">Quota Max</span>
-                      <span className="text-text font-semibold">
-                        {apiLimits?.quotaDaily
-                          ? `${apiLimits.quotaDaily.toLocaleString()} req/day`
-                          : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted">Rate Max</span>
-                      <span className="text-text font-semibold">
-                        {apiLimits?.rateDaily
-                          ? `${apiLimits.rateDaily.toLocaleString()} req/min`
-                          : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted">Quota Source</span>
-                      <span className="text-text font-semibold">
-                        {sourceLabel[apiLimits?.quotaSource] || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted">Rate Source</span>
-                      <span className="text-text font-semibold">
-                        {sourceLabel[apiLimits?.rateSource] || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted">Rate Model</span>
-                      <span className="text-text font-semibold">
-                        {rateUsageModel.windowModel === 'SLIDING_WINDOW'
-                          ? 'Sliding'
-                          : rateUsageModel.windowModel === 'FIXED_WINDOW'
-                            ? 'Fixed'
-                            : 'Unknown'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted">Cooldown Base</span>
-                      <span className="text-text font-semibold">
-                        {rateUsageModel.cooldownSeconds}s
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </BaseCard>
-          </div>
+            <CapacityCooldownChartCard
+              capacityViewInterval={capacityViewInterval}
+              onCapacityViewIntervalChange={setCapacityViewInterval}
+              apiLimits={apiLimits}
+              capacityResults={capacityResults}
+              capacityChartData={capacityChartData}
+              capacityCooldownOpts={capacityCooldownOpts}
+            />
 
-          <div className="flex flex-row w-full container-max-width mx-auto gap-6"></div>
-
-          <div className="container-max-width mx-auto my-6">
-            <BaseCard>
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-lg font-bold mb-0">Capacidad / Cuota con Cooldown 4XX</h3>
-                <span className="badge badge-info text-xs">
-                  {rateUsageModel.windowModel === 'SLIDING_WINDOW'
-                    ? 'Sliding Window'
-                    : rateUsageModel.windowModel === 'FIXED_WINDOW'
-                      ? 'Fixed Window'
-                      : 'Unknown model'}
-                </span>
-              </div>
-              <div className="p-2">
-                {liveResults.length > 0 ? (
-                  <UPlotChart options={capacityCooldownOpts} data={capacityChartData.data} />
-                ) : (
-                  <p className="text-sm text-slate-400 text-center py-12">
-                    Ejecuta un test para ver la evolucion de capacidad y cooldown
-                  </p>
-                )}
-              </div>
-            </BaseCard>
+            <ApiLimitsQuotaCard
+              summary={summary}
+              liveResults={liveResults}
+              apiLimits={apiLimits}
+              template={template}
+            />
           </div>
         </>
       )}
@@ -1462,15 +1975,17 @@ export default function ApiDashboardView({ template }) {
       )}
 
       {showModal && (
-        <div className="fixed right-4 top-24 z-50 w-[min(96vw,820px)] bg-primary">
-          <BaseCard className="max-h-[78vh] overflow-auto border border-border shadow-lg p-2">
-            <TemplateTestView
-              template={template}
-              OnClose={() => setShowModal(false)}
-              initialConfig={defaultTestConfig}
-              onConfigChange={handleModalConfigChange}
-            />
-          </BaseCard>
+        <div className="modal-overlay z-50" onClick={() => setShowModal(false)}>
+          <div className="modal-panel modal-large" onClick={(e) => e.stopPropagation()}>
+            <BaseCard className="max-h-[86vh] overflow-auto border border-border shadow-lg p-2">
+              <TemplateTestView
+                template={template}
+                OnClose={() => setShowModal(false)}
+                initialConfig={defaultTestConfig}
+                onConfigChange={handleModalConfigChange}
+              />
+            </BaseCard>
+          </div>
         </div>
       )}
 
@@ -1481,23 +1996,32 @@ export default function ApiDashboardView({ template }) {
               template={template}
               onDone={() => {
                 setShowEditModal(false);
-                // Reload datasheet after template update
+                // Reload datasheet and limits after template update
                 const loadDatasheet = async () => {
                   try {
+                    const latestTemplate = await getTemplateRecord(template.id);
+                    setResolvedIsDummy(Boolean(latestTemplate?.isDummy));
+                    setResolvedDummyConfig(latestTemplate?.dummyConfig || null);
+
                     const ds = await getTemplateDatasheet(template.id);
                     const datasheetContent = ds?.datasheet || ds;
                     setDatasheet(datasheetContent);
 
-                    const extracted = extractLimitsFromDatasheet(datasheetContent);
-                    if (extracted.quotaMax !== null || extracted.rateMax !== null) {
+                    // Fetch updated limits from backend
+                    try {
+                      const limits = await getApiLimits(template.id);
                       setApiLimits((prev) => ({
                         ...prev,
-                        quotaDaily: extracted.quotaMax ?? prev.quotaDaily,
-                        rateDaily: extracted.rateMax ?? prev.rateDaily,
-                        quotaSource: extracted.quotaMax !== null ? 'datasheet' : prev.quotaSource,
-                        rateSource: extracted.rateMax !== null ? 'datasheet' : prev.rateSource,
+                        quotaMax: limits?.quotaMax ?? prev.quotaMax,
+                        rateMax: limits?.rateMax ?? prev.rateMax,
+                        windowModel: limits?.windowModel ?? prev.windowModel,
+                        windowSeconds: limits?.windowSeconds ?? prev.windowSeconds,
+                        cooldownSeconds: limits?.cooldownSeconds ?? prev.cooldownSeconds,
+                        source: limits?.source ?? prev.source,
                         fetched: true,
                       }));
+                    } catch (limitsErr) {
+                      console.warn('[ApiDashboardView] Could not refresh limits:', limitsErr);
                     }
                   } catch (err) {
                     console.error('[ApiDashboardView] Error loading datasheet after update:', err);
