@@ -7,6 +7,8 @@
     "bootstrap": "concurrently \"npm ci --workspace=backend\" \"npm ci --workspace=frontend\"",
     "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
     "build": "npm run build --workspace=frontend",
+    "deploy": "npm run bootstrap && npm run deploy:seed && npm run dev",
+    "deploy:seed": "npm run db:seed --workspace=backend",
     "preview": "npm run preview --workspace=frontend",
     "test": "npm run test --workspace=backend"
   },

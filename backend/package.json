@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "dev": "nodemon --watch src -e js,json --exec node src/server.js",
     "test": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "db:seed": "node scripts/seed-db.js",
     "infra:setup": "node scripts/setup-config.js",
     "infra:deploy": "node scripts/deploy-infra.js"
   },

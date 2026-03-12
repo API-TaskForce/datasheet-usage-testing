@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
+import path from 'path';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
 import routes from './routes/index.js';
 import { register } from 'prom-client';
 
@@ -10,6 +13,10 @@ import { errorHandler } from './middlewares/errorHandler.js';
 import { requestLogger } from './middlewares/logger.js';
 import { success } from './lib/log.js';
 import { getMetrics } from './controllers/monitoringController.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
 const app = express();
 
 // CORS configuration for frontend
@@ -29,21 +36,24 @@ app.use(requestLogger);
 // Proxy endpoint for external API calls (solves CORS) - MUST be before other routes
 // POST /proxy with { url, method, headers, body }
 app.post('/proxy', proxyRequest);
+app.post('/api/proxy', proxyRequest);
 
 // health
-app.get('/', (req, res) => res.json({ service: 'api-limiter-service', status: 'ok' }));
+app.get('/health', (req, res) => res.json({ service: 'api-limiter-service', status: 'ok' }));
+app.get('/api/health', (req, res) => res.json({ service: 'api-limiter-service', status: 'ok' }));
 
 // API Routes
 // /tests -> for test execution and retrieval
 // /templates -> for API template management
 // /test-configs -> for predefined test configurations
 app.use('/tests', routes);
+app.use('/api/tests', routes);
 app.use('/templates', routes);
+app.use('/api/templates', routes);
 app.use('/test-configs', routes);
+app.use('/api/test-configs', routes);
 app.get('/monitoring/metrics', getMetrics);
-
-// error handler
-app.use(errorHandler);
+app.get('/api/monitoring/metrics', getMetrics);
 
 // Metrics endpoint
 app.get('/metrics', async (req, res) => {
@@ -54,6 +64,18 @@ app.get('/metrics', async (req, res) => {
     res.status(500).end(ex);
   }
 });
+
+// Serve frontend build in production-like environments when available.
+if (existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+
+  app.get(/^(?!\/api|\/metrics|\/health).*/, (req, res) => {
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+}
+
+// error handler
+app.use(errorHandler);
 
 export default app;
 
