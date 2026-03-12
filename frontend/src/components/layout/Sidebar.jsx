@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Menu, X, LayoutDashboard, FileText } from 'lucide-react';
+import { Menu, X, LayoutDashboard, FileText, FolderOpen } from 'lucide-react';
 
 export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
   const logo = '/score-logo.png';
   const navItems = [
     {
       id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
+      label: 'APIs',
+      icon: FolderOpen,
     },
     {
       id: 'test-logs',

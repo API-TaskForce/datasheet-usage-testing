@@ -108,7 +108,11 @@ export default function HistoricalInstantChartCard({
         Línea azul = tráfico · Barras verdes = instantáneas · Rojo = rate limit · Ventana {windowSeconds}s
       </div>
       <div className="p-2 flex-1">
-        <UPlotChart options={options} data={safeData} />
+        <UPlotChart
+          options={options}
+          data={safeData}
+          persistenceKey="api-dashboard-traffic-chart"
+        />
       </div>
     </BaseCard>
   );

@@ -43,7 +43,11 @@ export default function CapacityCooldownChartCard({
       <div className="p-2 flex-1">
         {capacityResults.length > 0 ? (
           <>
-            <UPlotChart options={capacityCooldownOpts} data={capacityChartData.data} />
+            <UPlotChart
+              options={capacityCooldownOpts}
+              data={capacityChartData.data}
+              persistenceKey="api-dashboard-capacity-chart"
+            />
             <div className="mt-2 text-xs text-slate-400 flex justify-between items-center">
               {(apiLimits.windowModel === 'FIXED_WINDOW' ||
                 apiLimits.windowModel === 'SLIDING_WINDOW') && (

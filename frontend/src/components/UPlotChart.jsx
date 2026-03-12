@@ -2,6 +2,59 @@ import React, { useEffect, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 
+function buildViewportStorageKey(persistenceKey) {
+  if (!persistenceKey) return null;
+  return `uplot-viewport:${persistenceKey}`;
+}
+
+function readPersistedViewport(persistenceKey) {
+  const storageKey = buildViewportStorageKey(persistenceKey);
+  if (!storageKey || typeof window === 'undefined') return null;
+
+  try {
+    const rawValue = window.localStorage.getItem(storageKey);
+    if (!rawValue) return null;
+
+    const parsed = JSON.parse(rawValue);
+    const validX = parsed?.x && Number.isFinite(parsed.x.min) && Number.isFinite(parsed.x.max);
+    const validY = parsed?.y && Number.isFinite(parsed.y.min) && Number.isFinite(parsed.y.max);
+
+    if (!validX && !validY) {
+      return null;
+    }
+
+    return {
+      x: validX ? parsed.x : null,
+      y: validY ? parsed.y : null,
+    };
+  } catch (error) {
+    console.warn('[UPlotChart] Failed to read persisted viewport:', error);
+    return null;
+  }
+}
+
+function writePersistedViewport(persistenceKey, viewport) {
+  const storageKey = buildViewportStorageKey(persistenceKey);
+  if (!storageKey || typeof window === 'undefined' || !viewport) return;
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(viewport));
+  } catch (error) {
+    console.warn('[UPlotChart] Failed to persist viewport:', error);
+  }
+}
+
+function clearPersistedViewport(persistenceKey) {
+  const storageKey = buildViewportStorageKey(persistenceKey);
+  if (!storageKey || typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch (error) {
+    console.warn('[UPlotChart] Failed to clear persisted viewport:', error);
+  }
+}
+
 function createConventionalZoomPlugin() {
   return {
     hooks: {
@@ -11,6 +64,9 @@ function createConventionalZoomPlugin() {
 
         const initialX = { min: u.scales.x.min, max: u.scales.x.max };
         const initialY = { min: u.scales.y.min, max: u.scales.y.max };
+        u._initialViewport = { x: initialX, y: initialY };
+        u._viewportState = { x: initialX, y: initialY };
+        u._isApplyingViewport = false;
 
         let dragStartX = null;
         let dragStartY = null;
@@ -38,9 +94,16 @@ function createConventionalZoomPlugin() {
 
         const onDoubleClick = () => {
           u._hasManualViewport = false;
+          u._viewportState = {
+            x: { ...initialX },
+            y: { ...initialY },
+          };
+          clearPersistedViewport(u._persistenceKey);
           u.batch(() => {
+            u._isApplyingViewport = true;
             u.setScale('x', initialX);
             u.setScale('y', initialY);
+            u._isApplyingViewport = false;
           });
         };
 
@@ -54,6 +117,32 @@ function createConventionalZoomPlugin() {
           over.removeEventListener('dblclick', onDoubleClick);
         };
       },
+      setScale: (u, key) => {
+        if (u._isApplyingViewport) {
+          return;
+        }
+
+        if (key !== 'x' && key !== 'y') {
+          return;
+        }
+
+        const scale = u.scales?.[key];
+        if (!Number.isFinite(scale?.min) || !Number.isFinite(scale?.max)) {
+          return;
+        }
+
+        u._viewportState = {
+          ...(u._viewportState || {}),
+          [key]: {
+            min: scale.min,
+            max: scale.max,
+          },
+        };
+
+        if (u._hasManualViewport) {
+          writePersistedViewport(u._persistenceKey, u._viewportState);
+        }
+      },
       destroy: (u) => {
         if (typeof u._customCleanup === 'function') {
           u._customCleanup();
@@ -64,12 +153,44 @@ function createConventionalZoomPlugin() {
   };
 }
 
-export default function UPlotChart({ options, data }) {
+export default function UPlotChart({ options, data, persistenceKey = null }) {
   const chartRef = useRef(null);
   const uPlotInstance = useRef(null);
   const interactionPluginRef = useRef(createConventionalZoomPlugin());
   const resizeObserverRef = useRef(null);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  const clampRangeToDomain = (range, domainMin, domainMax) => {
+    if (
+      !range ||
+      !Number.isFinite(range.min) ||
+      !Number.isFinite(range.max) ||
+      !Number.isFinite(domainMin) ||
+      !Number.isFinite(domainMax)
+    ) {
+      return null;
+    }
+
+    if (domainMax <= domainMin) {
+      return { min: domainMin, max: domainMax };
+    }
+
+    const width = Math.max(0, range.max - range.min);
+    const clampedWidth = Math.min(width, domainMax - domainMin);
+    let nextMin = Math.max(domainMin, range.min);
+    let nextMax = nextMin + clampedWidth;
+
+    if (nextMax > domainMax) {
+      nextMax = domainMax;
+      nextMin = Math.max(domainMin, nextMax - clampedWidth);
+    }
+
+    if (nextMin === nextMax) {
+      return { min: domainMin, max: domainMax };
+    }
+
+    return { min: nextMin, max: nextMax };
+  };
 
   useEffect(() => {
     if (uPlotInstance.current) {
@@ -115,11 +236,40 @@ export default function UPlotChart({ options, data }) {
       };
 
       uPlotInstance.current = new uPlot(mergedOptions, data, chartRef.current);
+      uPlotInstance.current._persistenceKey = persistenceKey;
       uPlotInstance.current._hasManualViewport = false;
+
+      const persistedViewport = readPersistedViewport(persistenceKey);
+      if (persistedViewport) {
+        const xValues = Array.isArray(data?.[0]) ? data[0] : [];
+        const domainMin = xValues.length > 0 ? Math.min(...xValues) : null;
+        const domainMax = xValues.length > 0 ? Math.max(...xValues) : null;
+        const persistedX = clampRangeToDomain(persistedViewport.x, domainMin, domainMax);
+        const persistedY = persistedViewport.y;
+
+        uPlotInstance.current._viewportState = {
+          x: persistedX || uPlotInstance.current._viewportState?.x || null,
+          y: persistedY || uPlotInstance.current._viewportState?.y || null,
+        };
+        uPlotInstance.current._hasManualViewport = Boolean(persistedX || persistedY);
+
+        if (uPlotInstance.current._hasManualViewport) {
+          uPlotInstance.current.batch(() => {
+            uPlotInstance.current._isApplyingViewport = true;
+            if (persistedX) {
+              uPlotInstance.current.setScale('x', persistedX);
+            }
+            if (persistedY && Number.isFinite(persistedY.min) && Number.isFinite(persistedY.max)) {
+              uPlotInstance.current.setScale('y', persistedY);
+            }
+            uPlotInstance.current._isApplyingViewport = false;
+          });
+        }
+      }
     } catch (error) {
       console.error('[UPlotChart] Error creating chart:', error);
     }
-  }, [options]);
+  }, [options, persistenceKey]);
 
   useEffect(() => {
     return () => {
@@ -180,6 +330,7 @@ export default function UPlotChart({ options, data }) {
       setIsUpdating(true);
       setTimeout(() => {
         if (uPlotInstance.current) {
+          const currentViewport = uPlotInstance.current._viewportState || null;
           uPlotInstance.current.setData(data);
 
           // Keep full-range autoscale only when user has not manually zoomed/panned.
@@ -225,8 +376,26 @@ export default function UPlotChart({ options, data }) {
                 };
 
             uPlotInstance.current.batch(() => {
+              uPlotInstance.current._isApplyingViewport = true;
               uPlotInstance.current.setScale('x', { min: xMin, max: xMax });
               uPlotInstance.current.setScale('y', yRange);
+              uPlotInstance.current._isApplyingViewport = false;
+            });
+          } else if (uPlotInstance.current._hasManualViewport && Array.isArray(data[0]) && data[0].length > 0) {
+            const domainMin = Math.min(...data[0]);
+            const domainMax = Math.max(...data[0]);
+            const persistedX = clampRangeToDomain(currentViewport?.x, domainMin, domainMax);
+            const persistedY = currentViewport?.y;
+
+            uPlotInstance.current.batch(() => {
+              uPlotInstance.current._isApplyingViewport = true;
+              if (persistedX) {
+                uPlotInstance.current.setScale('x', persistedX);
+              }
+              if (persistedY && Number.isFinite(persistedY.min) && Number.isFinite(persistedY.max)) {
+                uPlotInstance.current.setScale('y', persistedY);
+              }
+              uPlotInstance.current._isApplyingViewport = false;
             });
           }
         }
