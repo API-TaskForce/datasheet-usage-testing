@@ -31,9 +31,10 @@ export default function SafeModeAutoRefreshCard({
         onClick={handleSafeModeToggle}
         disabled={running}
         variant={safeModeEnabled ? 'primary' : 'secondary'}
+        size='sm'
         className={running ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
       >
-        {safeModeEnabled ? 'Regulación Segura' : 'Regulación Normal'}
+        {safeModeEnabled ? 'Regulación Segura' : 'Sin Regulación'}
       </BaseButton>
       <AutoRefreshSelector
         enabled={autoRefreshEnabled}

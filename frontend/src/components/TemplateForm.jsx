@@ -3,7 +3,12 @@ import yaml from 'js-yaml';
 import BaseCard from './BaseCard.jsx';
 import BaseButton from './BaseButton.jsx';
 import AuthBadge from './AuthBadge.jsx';
-import { createTemplate, updateTemplate } from '../services/apiTemplateService.js';
+import {
+  createTemplate,
+  updateTemplate,
+  getCollections,
+  createCollection,
+} from '../services/apiTemplateService.js';
 import { useToast } from '../stores/toastStore.jsx';
 import { Code, Eye, CheckCircle, XCircle, Upload, X, FileText } from 'lucide-react';
 
@@ -49,15 +54,22 @@ function buildDummyTemplateForm() {
   };
 }
 
-export default function TemplateForm({ template = null, onDone, onCancel }) {
+export default function TemplateForm({
+  template = null,
+  onDone,
+  onCancel,
+  initialCollectionId = '',
+}) {
   const [form, setForm] = useState({
     name: '',
     authMethod: '',
     authCredential: '',
     apiUri: '',
     datasheet: '',
+    collectionId: '',
     status: 'active',
   });
+  const [availableCollections, setAvailableCollections] = useState([]);
   const [requiresAuth, setRequiresAuth] = useState(false);
   const [isDummyApi, setIsDummyApi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -82,16 +94,43 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
   }, [form.datasheet]);
 
   useEffect(() => {
+    let mounted = true;
+    const loadCollections = async () => {
+      try {
+        const cols = await getCollections();
+        if (mounted) setAvailableCollections(cols);
+      } catch (err) {
+        console.warn('[TemplateForm] Failed to load collections:', err?.message || err);
+      }
+    };
+
+    loadCollections();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (template) {
       setForm({ ...template });
       setRequiresAuth(!!(template.authMethod && template.authMethod.trim()));
       setIsDummyApi(!!template.isDummy);
       // If template has datasheet, show it as uploaded
       if (template.datasheet && template.datasheet.trim()) {
-        setUploadedFileName(template.isDummy ? 'dummy-api.yml' : `${template.name || 'template'}.yml`);
+        setUploadedFileName(
+          template.isDummy ? 'dummy-api.yml' : `${template.name || 'template'}.yml`
+        );
       }
     }
   }, [template]);
+
+  useEffect(() => {
+    if (template) return;
+    setForm((prev) => ({
+      ...prev,
+      collectionId: initialCollectionId || '',
+    }));
+  }, [template, initialCollectionId]);
 
   const handleChange = (k, v) => setForm((s) => ({ ...s, [k]: v }));
 
@@ -174,10 +213,9 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
     try {
       const payload = {
         ...form,
+        collectionId: form.collectionId || null,
         isDummy: isDummyApi,
-        dummyConfig: isDummyApi
-          ? (template?.dummyConfig || DEFAULT_DUMMY_CONFIG)
-          : null,
+        dummyConfig: isDummyApi ? template?.dummyConfig || DEFAULT_DUMMY_CONFIG : null,
       };
       if (template) {
         await updateTemplate(template.id, payload);
@@ -219,7 +257,7 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
   };
 
   return (
-    <BaseCard>
+    <BaseCard className="flex flex-col justify-between h-full w-full">
       {/* Header */}
       <div className="border-b border-gray-200 pb-4 mb-4">
         <h2 className="text-2xl font-semibold text-text">{template ? 'Edit API' : 'Create API'}</h2>
@@ -229,13 +267,13 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
       {error && <div className="alert alert-error">{error}</div>}
 
       {/* Two Column Layout */}
-      <div className="flex flex-row w-full h-full gap-8">
+      <div className="flex flex-row w-full h-full justify-between gap-8">
         {/* LEFT COLUMN - Input Form */}
-        <div className="flex flex-col gap-6 w-full h-full max-w-lg">
+        <div className="flex flex-col gap-2 w-1/2 h-full">
           {/* Basic Info - Name & API URL */}
-          <div className="space-y-4">
+          <div className="flex flex-col gap-2">
             <div
-              className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer"
               onClick={() => handleDummyToggle(!isDummyApi)}
             >
               <input
@@ -243,13 +281,10 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
                 checked={isDummyApi}
                 onChange={(e) => handleDummyToggle(e.target.checked)}
                 onClick={(e) => e.stopPropagation()}
-                className="w-5 h-5 cursor-pointer"
+                className="form-input-checkbox"
               />
               <div>
-                <span className="text-text font-medium">Crear API Dummy (demo)</span>
-                <p className="text-xs text-slate-500">
-                  Carga una API ficticia con URL y datasheet preconfigurados para validar renderizado
-                </p>
+                <span className="text-text font-medium">Crear API Dummy</span>
               </div>
             </div>
 
@@ -274,12 +309,30 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
                 className="form-input"
               />
             </div>
+
+            <div className="form-group">
+              <label className="form-label muted">Collection</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={form.collectionId || ''}
+                  onChange={(e) => handleChange('collectionId', e.target.value)}
+                  className="form-select"
+                >
+                  <option value="">Sin colección</option>
+                  {availableCollections.map((col) => (
+                    <option key={col.id} value={col.id}>
+                      {col.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
 
           {/* Authentication Section */}
-          <div className="space-y-4">
+          <div className="expandible-section">
             <div
-              className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="expandible-header"
               onClick={() => {
                 if (isDummyApi) return;
                 setRequiresAuth(!requiresAuth);
@@ -289,21 +342,21 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
                 }
               }}
             >
+              <span className="text-text font-medium">
+                This API requires authentication
+                {isDummyApi ? ' (deshabilitado en modo Dummy)' : ''}
+              </span>
               <input
                 type="checkbox"
                 checked={requiresAuth}
                 onChange={() => {}}
                 disabled={isDummyApi}
-                className="w-5 h-5 cursor-pointer"
+                className="form-input-checkbox"
               />
-              <span className="text-text font-medium">
-                This API requires authentication
-                {isDummyApi ? ' (deshabilitado en modo Dummy)' : ''}
-              </span>
             </div>
 
             {requiresAuth && (
-              <div className="space-y-4">
+              <div className="expandible-content">
                 <div className="form-group">
                   <label className="form-label muted">Authentication Method</label>
                   <select
@@ -396,7 +449,7 @@ export default function TemplateForm({ template = null, onDone, onCancel }) {
         </div>
 
         {/* RIGHT COLUMN - Preview */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 w-1/2 h-full">
           <div className="flex items-center gap-2 mb-4">
             <h3 className="text-lg font-semibold text-text">API Preview</h3>
           </div>

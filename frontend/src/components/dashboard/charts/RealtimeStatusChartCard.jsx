@@ -1,6 +1,8 @@
 import React from 'react';
+import { Info } from 'lucide-react';
 import BaseCard from '../../BaseCard.jsx';
 import UPlotChart from '../../UPlotChart.jsx';
+import Tooltip from '../../Tooltip.jsx';
 
 export default function RealtimeStatusChartCard({ chartData }) {
   const safeX = chartData?.[0] || [Math.floor(Date.now() / 1000)];
@@ -49,7 +51,15 @@ export default function RealtimeStatusChartCard({ chartData }) {
   return (
     <BaseCard className="h-full flex flex-col">
       <div className="flex justify-between items-center mb-3 px-2 pt-2">
-        <h3 className="text-lg font-bold mb-0">Estado en Tiempo Real</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-bold mb-0">Estado en Tiempo Real</h3>
+          <Tooltip
+            text="Estado de las peticiones en tiempo real: éxito (verde), rate limited (amarillo) y error (rojo) por ventana de tiempo."
+            placement="bottom"
+          >
+            <Info size={15} className="text-slate-400 cursor-help flex-shrink-0" />
+          </Tooltip>
+        </div>
       </div>
       <div className="p-2 flex-1">
         <UPlotChart options={options} data={chartData} />

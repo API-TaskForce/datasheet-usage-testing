@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
+import { Info } from 'lucide-react';
 import uPlot from 'uplot';
 import BaseCard from '../../BaseCard.jsx';
 import UPlotChart from '../../UPlotChart.jsx';
+import Tooltip from '../../Tooltip.jsx';
 
 const TIME_SCALE_OPTIONS = [
   { value: '5m', label: '5m' },
@@ -88,7 +90,15 @@ export default function HistoricalInstantChartCard({
   return (
     <BaseCard className="h-full flex flex-col">
       <div className="flex justify-between items-center mb-3 px-2 pt-2">
-        <h3 className="text-lg font-bold mb-0">Tráfico de Peticiones</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-bold mb-0">Tráfico de Peticiones</h3>
+          <Tooltip
+            text="Peticiones instantáneas (barras), tráfico acumulado (línea azul) y límite de rate (rojo). Arrastra para hacer zoom, doble clic para resetear."
+            placement="bottom"
+          >
+            <Info size={15} className="text-slate-400 cursor-help flex-shrink-0" />
+          </Tooltip>
+        </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-slate-400">Escala tiempo:</label>
           <select

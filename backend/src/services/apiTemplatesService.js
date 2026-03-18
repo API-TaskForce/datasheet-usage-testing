@@ -1,6 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import YAML from 'yaml';
-import { createTemplate, updateTemplate, getTemplate, listTemplates, deleteTemplate } from '../db.js';
+import {
+  createTemplate,
+  updateTemplate,
+  getTemplate,
+  listTemplates,
+  deleteTemplate,
+  getCollection,
+} from '../db.js';
 import { error as logError } from '../lib/log.js';
 
 /**
@@ -36,6 +43,42 @@ function detectIsDummyAPI(name, apiUri) {
   return false;
 }
 
+const NO_LOGO_DOMAINS = new Set([
+  'jsonplaceholder.typicode.com',
+  'httpbin.org',
+  'reqres.in',
+  'localhost',
+  '127.0.0.1',
+]);
+
+function shouldSkipLogoDomain(domain) {
+  if (!domain) return true;
+  const normalized = String(domain).trim().toLowerCase();
+  if (!normalized) return true;
+  if (NO_LOGO_DOMAINS.has(normalized)) return true;
+  if (normalized.endsWith('.local')) return true;
+  return false;
+}
+
+function buildLogoUrl(domain) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+}
+
+function inferImageUrl(apiUri) {
+  if (!apiUri || typeof apiUri !== 'string') return null;
+
+  try {
+    const trimmed = apiUri.trim();
+    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const { hostname } = new URL(normalized);
+    const domain = String(hostname || '').trim().toLowerCase();
+    if (shouldSkipLogoDomain(domain)) return null;
+    return buildLogoUrl(domain);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Create a new API Template
  * @param {Object} templateData - Template data
@@ -45,6 +88,14 @@ export async function createNewTemplate(templateData) {
   try {
     // Validate YAML
     validateYAML(templateData.datasheet);
+
+    const collectionId = templateData?.collectionId ? String(templateData.collectionId) : null;
+    if (collectionId) {
+      const collection = await getCollection(collectionId);
+      if (!collection) {
+        throw new Error('Collection not found');
+      }
+    }
 
     // Detect if it's a dummy API (either explicitly set or auto-detected)
     const isDummy = Boolean(templateData.isDummy) || detectIsDummyAPI(templateData.name, templateData.apiUri);
@@ -72,8 +123,10 @@ export async function createNewTemplate(templateData) {
       authMethod: templateData.authMethod,
       authCredential: templateData.authCredential,
       apiUri: templateData.apiUri,
+      imageUrl: templateData.imageUrl || inferImageUrl(templateData.apiUri),
       datasheet: templateData.datasheet,
       status: templateData.status || 'active',
+      collectionId,
       isDummy,
       dummyConfig,
       createdAt: new Date().toISOString(),
@@ -136,6 +189,13 @@ export async function updateTemplateById(id, updateData) {
       throw new Error('Template not found');
     }
 
+    if (updateData.collectionId !== undefined && updateData.collectionId !== null && updateData.collectionId !== '') {
+      const collection = await getCollection(String(updateData.collectionId));
+      if (!collection) {
+        throw new Error('Collection not found');
+      }
+    }
+
     // Detect or preserve isDummy flag
     const name = updateData.name !== undefined ? updateData.name : existing.name;
     const apiUri = updateData.apiUri !== undefined ? updateData.apiUri : existing.apiUri;
@@ -160,9 +220,18 @@ export async function updateTemplateById(id, updateData) {
 
     const fieldsToUpdate = {
       ...updateData,
+      ...(updateData.collectionId === '' ? { collectionId: null } : {}),
       isDummy,
       dummyConfig,
     };
+
+    const existingImageUrl = String(existing.imageUrl || '').trim();
+    const hasLegacyClearbitUrl = existingImageUrl.includes('logo.clearbit.com/');
+    if (fieldsToUpdate.imageUrl === undefined || fieldsToUpdate.imageUrl === null || fieldsToUpdate.imageUrl === '') {
+      fieldsToUpdate.imageUrl = hasLegacyClearbitUrl
+        ? (inferImageUrl(apiUri) || null)
+        : (existingImageUrl || inferImageUrl(apiUri) || null);
+    }
 
     const updated = await updateTemplate(id, fieldsToUpdate);
     return updated;

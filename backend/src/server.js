@@ -46,12 +46,15 @@ app.get('/api/health', (req, res) => res.json({ service: 'api-limiter-service', 
 // /tests -> for test execution and retrieval
 // /templates -> for API template management
 // /test-configs -> for predefined test configurations
+// /collections -> API collections management
 app.use('/tests', routes);
 app.use('/api/tests', routes);
 app.use('/templates', routes);
 app.use('/api/templates', routes);
 app.use('/test-configs', routes);
 app.use('/api/test-configs', routes);
+app.use('/collections', routes);
+app.use('/api/collections', routes);
 app.get('/monitoring/metrics', getMetrics);
 app.get('/api/monitoring/metrics', getMetrics);
 

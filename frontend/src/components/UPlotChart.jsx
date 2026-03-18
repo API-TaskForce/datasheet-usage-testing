@@ -2,194 +2,140 @@ import React, { useEffect, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 
-function buildViewportStorageKey(persistenceKey) {
-  if (!persistenceKey) return null;
-  return `uplot-viewport:${persistenceKey}`;
+function percentileFromSorted(sortedValues, percentile) {
+  if (!Array.isArray(sortedValues) || sortedValues.length === 0) return null;
+  const p = Math.min(1, Math.max(0, percentile));
+  const idx = (sortedValues.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) return sortedValues[lower];
+  const weight = idx - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
 }
-
-function readPersistedViewport(persistenceKey) {
-  const storageKey = buildViewportStorageKey(persistenceKey);
-  if (!storageKey || typeof window === 'undefined') return null;
-
-  try {
-    const rawValue = window.localStorage.getItem(storageKey);
-    if (!rawValue) return null;
-
-    const parsed = JSON.parse(rawValue);
-    const validX = parsed?.x && Number.isFinite(parsed.x.min) && Number.isFinite(parsed.x.max);
-    const validY = parsed?.y && Number.isFinite(parsed.y.min) && Number.isFinite(parsed.y.max);
-
-    if (!validX && !validY) {
-      return null;
-    }
-
-    return {
-      x: validX ? parsed.x : null,
-      y: validY ? parsed.y : null,
-    };
-  } catch (error) {
-    console.warn('[UPlotChart] Failed to read persisted viewport:', error);
-    return null;
-  }
-}
-
-function writePersistedViewport(persistenceKey, viewport) {
-  const storageKey = buildViewportStorageKey(persistenceKey);
-  if (!storageKey || typeof window === 'undefined' || !viewport) return;
-
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(viewport));
-  } catch (error) {
-    console.warn('[UPlotChart] Failed to persist viewport:', error);
-  }
-}
-
-function clearPersistedViewport(persistenceKey) {
-  const storageKey = buildViewportStorageKey(persistenceKey);
-  if (!storageKey || typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.removeItem(storageKey);
-  } catch (error) {
-    console.warn('[UPlotChart] Failed to clear persisted viewport:', error);
-  }
-}
-
-function createConventionalZoomPlugin() {
-  return {
-    hooks: {
-      ready: (u) => {
-        const over = u.over;
-        if (!over) return;
-
-        const initialX = { min: u.scales.x.min, max: u.scales.x.max };
-        const initialY = { min: u.scales.y.min, max: u.scales.y.max };
-        u._initialViewport = { x: initialX, y: initialY };
-        u._viewportState = { x: initialX, y: initialY };
-        u._isApplyingViewport = false;
-
-        let dragStartX = null;
-        let dragStartY = null;
-
-        const onMouseDown = (e) => {
-          if (e.button !== 0) return;
-          dragStartX = e.clientX;
-          dragStartY = e.clientY;
-        };
-
-        const onMouseUp = (e) => {
-          if (dragStartX == null || dragStartY == null) return;
-
-          const dx = Math.abs(e.clientX - dragStartX);
-          const dy = Math.abs(e.clientY - dragStartY);
-
-          // If user dragged enough, we assume a native zoom selection occurred.
-          if (dx > 4 || dy > 4) {
-            u._hasManualViewport = true;
-          }
-
-          dragStartX = null;
-          dragStartY = null;
-        };
-
-        const onDoubleClick = () => {
-          u._hasManualViewport = false;
-          u._viewportState = {
-            x: { ...initialX },
-            y: { ...initialY },
-          };
-          clearPersistedViewport(u._persistenceKey);
-          u.batch(() => {
-            u._isApplyingViewport = true;
-            u.setScale('x', initialX);
-            u.setScale('y', initialY);
-            u._isApplyingViewport = false;
-          });
-        };
-
-        over.addEventListener('mousedown', onMouseDown);
-        over.addEventListener('mouseup', onMouseUp);
-        over.addEventListener('dblclick', onDoubleClick);
-
-        u._customCleanup = () => {
-          over.removeEventListener('mousedown', onMouseDown);
-          over.removeEventListener('mouseup', onMouseUp);
-          over.removeEventListener('dblclick', onDoubleClick);
-        };
-      },
-      setScale: (u, key) => {
-        if (u._isApplyingViewport) {
-          return;
-        }
-
-        if (key !== 'x' && key !== 'y') {
-          return;
-        }
-
-        const scale = u.scales?.[key];
-        if (!Number.isFinite(scale?.min) || !Number.isFinite(scale?.max)) {
-          return;
-        }
-
-        u._viewportState = {
-          ...(u._viewportState || {}),
-          [key]: {
-            min: scale.min,
-            max: scale.max,
-          },
-        };
-
-        if (u._hasManualViewport) {
-          writePersistedViewport(u._persistenceKey, u._viewportState);
-        }
-      },
-      destroy: (u) => {
-        if (typeof u._customCleanup === 'function') {
-          u._customCleanup();
-          u._customCleanup = null;
-        }
-      },
-    },
-  };
-}
-
-export default function UPlotChart({ options, data, persistenceKey = null }) {
+export default function UPlotChart({ options, data }) {
   const chartRef = useRef(null);
   const uPlotInstance = useRef(null);
-  const interactionPluginRef = useRef(createConventionalZoomPlugin());
   const resizeObserverRef = useRef(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const clampRangeToDomain = (range, domainMin, domainMax) => {
-    if (
-      !range ||
-      !Number.isFinite(range.min) ||
-      !Number.isFinite(range.max) ||
-      !Number.isFinite(domainMin) ||
-      !Number.isFinite(domainMax)
-    ) {
+  const computeSmartRanges = (nextData) => {
+    if (!Array.isArray(nextData) || !Array.isArray(nextData[0]) || nextData[0].length === 0) {
       return null;
     }
 
-    if (domainMax <= domainMin) {
-      return { min: domainMin, max: domainMax };
+    const smartZoom = options?.smartZoom || {};
+    const smartEnabled = smartZoom.enabled !== false;
+
+    const explicitXRange =
+      Array.isArray(options?.scales?.x?.range) &&
+      options.scales.x.range.length === 2 &&
+      options.scales.x.range.every((value) => Number.isFinite(value));
+    const explicitYRange =
+      Array.isArray(options?.scales?.y?.range) &&
+      options.scales.y.range.length === 2 &&
+      options.scales.y.range.every((value) => Number.isFinite(value));
+    const overrideExplicit = smartZoom.overrideExplicitRanges === true;
+
+    const finiteX = nextData[0].filter((v) => Number.isFinite(v));
+    if (finiteX.length === 0) return null;
+
+    const domainXMin = Math.min(...finiteX);
+    const domainXMax = Math.max(...finiteX);
+
+    let xRange = null;
+    if (explicitXRange && !overrideExplicit) {
+      xRange = { min: options.scales.x.range[0], max: options.scales.x.range[1] };
+    } else {
+      const xPaddingRatio = Number.isFinite(smartZoom.xPaddingRatio)
+        ? Math.max(0, smartZoom.xPaddingRatio)
+        : 0.02;
+      const xSpan = Math.max(0, domainXMax - domainXMin);
+      const xPad = xSpan > 0 ? xSpan * xPaddingRatio : 1;
+      xRange = {
+        min: domainXMin - xPad,
+        max: domainXMax + xPad,
+      };
     }
 
-    const width = Math.max(0, range.max - range.min);
-    const clampedWidth = Math.min(width, domainMax - domainMin);
-    let nextMin = Math.max(domainMin, range.min);
-    let nextMax = nextMin + clampedWidth;
+    let yRange = null;
+    if (explicitYRange && !overrideExplicit) {
+      yRange = { min: options.scales.y.range[0], max: options.scales.y.range[1] };
+    } else {
+      const configuredSeries = Array.isArray(options?.autoScaleSeriesIndices)
+        ? options.autoScaleSeriesIndices.filter(
+            (idx) => Number.isInteger(idx) && idx > 0 && idx < nextData.length
+          )
+        : [];
+      const seriesToScale =
+        configuredSeries.length > 0
+          ? configuredSeries
+          : Array.from({ length: Math.max(0, nextData.length - 1) }, (_, idx) => idx + 1);
 
-    if (nextMax > domainMax) {
-      nextMax = domainMax;
-      nextMin = Math.max(domainMin, nextMax - clampedWidth);
+      const yCandidates = [];
+      for (const i of seriesToScale) {
+        const series = Array.isArray(nextData[i]) ? nextData[i] : [];
+        for (const value of series) {
+          if (value != null && Number.isFinite(value)) {
+            yCandidates.push(value);
+          }
+        }
+      }
+
+      if (yCandidates.length > 0) {
+        let minCandidate = Math.min(...yCandidates);
+        let maxCandidate = Math.max(...yCandidates);
+
+        if (smartEnabled && yCandidates.length > 8 && smartZoom.trimOutliers !== false) {
+          const sortedY = [...yCandidates].sort((a, b) => a - b);
+          const lowP = Number.isFinite(smartZoom.trimLowPercentile)
+            ? Math.min(0.2, Math.max(0, smartZoom.trimLowPercentile))
+            : 0.02;
+          const highP = Number.isFinite(smartZoom.trimHighPercentile)
+            ? Math.max(0.8, Math.min(1, smartZoom.trimHighPercentile))
+            : 0.98;
+          const robustMin = percentileFromSorted(sortedY, Math.min(lowP, highP));
+          const robustMax = percentileFromSorted(sortedY, Math.max(lowP, highP));
+          if (Number.isFinite(robustMin) && Number.isFinite(robustMax) && robustMax > robustMin) {
+            minCandidate = robustMin;
+            maxCandidate = robustMax;
+          }
+        }
+
+        const yPaddingRatio = Number.isFinite(smartZoom.yPaddingRatio)
+          ? Math.max(0, smartZoom.yPaddingRatio)
+          : 0.12;
+        const span = Math.max(0, maxCandidate - minCandidate);
+        const pad = span > 0 ? span * yPaddingRatio : Math.max(1, Math.abs(maxCandidate) * 0.1);
+        const anchorZero = smartZoom.anchorZero === true || options?.autoScaleFromZero === true;
+
+        let minY = anchorZero ? Math.min(0, minCandidate - pad) : minCandidate - pad;
+        let maxY = maxCandidate + pad;
+
+        if (!Number.isFinite(minY) || !Number.isFinite(maxY) || maxY <= minY) {
+          minY = 0;
+          maxY = Math.max(1, maxCandidate || 1);
+        }
+
+        yRange = {
+          min: minY,
+          max: maxY,
+        };
+      } else {
+        yRange = { min: 0, max: 1 };
+      }
     }
 
-    if (nextMin === nextMax) {
-      return { min: domainMin, max: domainMax };
-    }
+    return { xRange, yRange };
+  };
 
-    return { min: nextMin, max: nextMax };
+  const applyAutoViewport = (instance, nextData) => {
+    const ranges = computeSmartRanges(nextData);
+    if (!ranges?.xRange || !ranges?.yRange) return;
+
+    instance.batch(() => {
+      instance.setScale('x', ranges.xRange);
+      instance.setScale('y', ranges.yRange);
+    });
   };
 
   useEffect(() => {
@@ -229,47 +175,17 @@ export default function UPlotChart({ options, data, persistenceKey = null }) {
           ...options.cursor,
           drag: {
             ...(options.cursor?.drag || {}),
-            setScale: true,
+            setScale: false,
           },
         },
-        plugins: [...(options.plugins || []), interactionPluginRef.current],
       };
 
       uPlotInstance.current = new uPlot(mergedOptions, data, chartRef.current);
-      uPlotInstance.current._persistenceKey = persistenceKey;
-      uPlotInstance.current._hasManualViewport = false;
-
-      const persistedViewport = readPersistedViewport(persistenceKey);
-      if (persistedViewport) {
-        const xValues = Array.isArray(data?.[0]) ? data[0] : [];
-        const domainMin = xValues.length > 0 ? Math.min(...xValues) : null;
-        const domainMax = xValues.length > 0 ? Math.max(...xValues) : null;
-        const persistedX = clampRangeToDomain(persistedViewport.x, domainMin, domainMax);
-        const persistedY = persistedViewport.y;
-
-        uPlotInstance.current._viewportState = {
-          x: persistedX || uPlotInstance.current._viewportState?.x || null,
-          y: persistedY || uPlotInstance.current._viewportState?.y || null,
-        };
-        uPlotInstance.current._hasManualViewport = Boolean(persistedX || persistedY);
-
-        if (uPlotInstance.current._hasManualViewport) {
-          uPlotInstance.current.batch(() => {
-            uPlotInstance.current._isApplyingViewport = true;
-            if (persistedX) {
-              uPlotInstance.current.setScale('x', persistedX);
-            }
-            if (persistedY && Number.isFinite(persistedY.min) && Number.isFinite(persistedY.max)) {
-              uPlotInstance.current.setScale('y', persistedY);
-            }
-            uPlotInstance.current._isApplyingViewport = false;
-          });
-        }
-      }
+      applyAutoViewport(uPlotInstance.current, data);
     } catch (error) {
       console.error('[UPlotChart] Error creating chart:', error);
     }
-  }, [options, persistenceKey]);
+  }, [options]);
 
   useEffect(() => {
     return () => {
@@ -330,73 +246,10 @@ export default function UPlotChart({ options, data, persistenceKey = null }) {
       setIsUpdating(true);
       setTimeout(() => {
         if (uPlotInstance.current) {
-          const currentViewport = uPlotInstance.current._viewportState || null;
           uPlotInstance.current.setData(data);
 
-          // Keep full-range autoscale only when user has not manually zoomed/panned.
-          if (!uPlotInstance.current._hasManualViewport && Array.isArray(data[0]) && data[0].length > 0) {
-            const explicitXRange = Array.isArray(options?.scales?.x?.range)
-              && options.scales.x.range.length === 2
-              && options.scales.x.range.every((value) => Number.isFinite(value));
-            const explicitYRange = Array.isArray(options?.scales?.y?.range)
-              && options.scales.y.range.length === 2
-              && options.scales.y.range.every((value) => Number.isFinite(value));
-
-            const xMin = explicitXRange ? options.scales.x.range[0] : Math.min(...data[0]);
-            const xMax = explicitXRange ? options.scales.x.range[1] : Math.max(...data[0]);
-
-            const yCandidates = [];
-            const configuredSeries = Array.isArray(options?.autoScaleSeriesIndices)
-              ? options.autoScaleSeriesIndices.filter((idx) => Number.isInteger(idx) && idx > 0 && idx < data.length)
-              : [];
-            const seriesToScale = configuredSeries.length > 0
-              ? configuredSeries
-              : Array.from({ length: Math.max(0, data.length - 1) }, (_, idx) => idx + 1);
-
-            for (const i of seriesToScale) {
-              const series = Array.isArray(data[i]) ? data[i] : [];
-              series.forEach((v) => {
-                if (v != null && Number.isFinite(v)) yCandidates.push(v);
-              });
-            }
-
-            const yMin = 0;
-            const yPadding = Number.isFinite(options?.autoScalePadding)
-              ? Math.max(1, options.autoScalePadding)
-              : 1.2;
-            const autoYMax = yCandidates.length > 0 ? Math.max(...yCandidates) * yPadding : 1;
-            const yRange = explicitYRange
-              ? {
-                  min: options.scales.y.range[0],
-                  max: options.scales.y.range[1],
-                }
-              : {
-                  min: yMin,
-                  max: Math.max(1, autoYMax),
-                };
-
-            uPlotInstance.current.batch(() => {
-              uPlotInstance.current._isApplyingViewport = true;
-              uPlotInstance.current.setScale('x', { min: xMin, max: xMax });
-              uPlotInstance.current.setScale('y', yRange);
-              uPlotInstance.current._isApplyingViewport = false;
-            });
-          } else if (uPlotInstance.current._hasManualViewport && Array.isArray(data[0]) && data[0].length > 0) {
-            const domainMin = Math.min(...data[0]);
-            const domainMax = Math.max(...data[0]);
-            const persistedX = clampRangeToDomain(currentViewport?.x, domainMin, domainMax);
-            const persistedY = currentViewport?.y;
-
-            uPlotInstance.current.batch(() => {
-              uPlotInstance.current._isApplyingViewport = true;
-              if (persistedX) {
-                uPlotInstance.current.setScale('x', persistedX);
-              }
-              if (persistedY && Number.isFinite(persistedY.min) && Number.isFinite(persistedY.max)) {
-                uPlotInstance.current.setScale('y', persistedY);
-              }
-              uPlotInstance.current._isApplyingViewport = false;
-            });
+          if (Array.isArray(data[0]) && data[0].length > 0) {
+            applyAutoViewport(uPlotInstance.current, data);
           }
         }
         setIsUpdating(false);
@@ -405,7 +258,7 @@ export default function UPlotChart({ options, data, persistenceKey = null }) {
       console.error('[UPlotChart] Error updating data:', error);
       setIsUpdating(false);
     }
-  }, [data]);
+  }, [data, options]);
 
   return (
     <div
@@ -413,7 +266,7 @@ export default function UPlotChart({ options, data, persistenceKey = null }) {
       style={{
         width: '100%',
         opacity: isUpdating ? 0.92 : 1,
-        transition: 'opacity 0.15s ease-in-out',
+        transition: 'all 0.3s ease-out',
       }}
     />
   );

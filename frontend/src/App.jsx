@@ -3,6 +3,7 @@ import MainLayout from './components/layout/MainLayout.jsx'
 import TemplatesPage from './views/TemplatesPage.jsx'
 import TestLogsPage from './views/TestLogsPage.jsx'
 import ApiDashboardView from './views/ApiDashboardView.jsx'
+import CollectionsPage from './views/CollectionsPage.jsx'
 import { ToastProvider } from './stores/toastStore.jsx'
 
 export default function App(){
@@ -29,6 +30,9 @@ export default function App(){
           <ApiDashboardView template={selectedTemplate} />
         )}
         {currentPage === 'test-logs' && <TestLogsPage />}
+        {currentPage === 'collections' && (
+          <CollectionsPage onSelectTemplate={handleSelectTemplate} />
+        )}
       </MainLayout>
     </ToastProvider>
   )

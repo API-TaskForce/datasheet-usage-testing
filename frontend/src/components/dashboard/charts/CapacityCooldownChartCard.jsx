@@ -1,6 +1,8 @@
 import React from 'react';
+import { Info } from 'lucide-react';
 import BaseCard from '../../BaseCard.jsx';
 import UPlotChart from '../../UPlotChart.jsx';
+import Tooltip from '../../Tooltip.jsx';
 
 export default function CapacityCooldownChartCard({
   capacityViewInterval,
@@ -13,7 +15,15 @@ export default function CapacityCooldownChartCard({
   return (
     <BaseCard className="h-full flex flex-col">
       <div className="flex justify-between items-center mb-3">
-        <h3 className="text-lg font-bold mb-0">Capacidad / Cuota con Cooldown 4XX</h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-lg font-bold mb-0">Capacidad / Cuota con Cooldown 4XX</h3>
+            <Tooltip
+              text="Capacidad de cuota consumida y periodos de cooldown tras errores 4XX. El tráfico se resetea al alcanzar el límite o tras un cooldown."
+              placement="bottom"
+            >
+              <Info size={15} className="text-slate-400 cursor-help flex-shrink-0" />
+            </Tooltip>
+          </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-slate-400">Intervalo:</label>
           <select

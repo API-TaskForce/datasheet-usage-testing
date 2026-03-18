@@ -28,13 +28,13 @@ export default function TestLogsPage() {
       const sorted = data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setLogs(sorted);
       if (sorted.length === 0) {
-        toast.info('No test logs found');
+        toast.info('No se encontraron registros de pruebas');
       } else {
-        toast.success(`Loaded ${sorted.length} test logs`);
+        toast.success(`Se cargaron ${sorted.length} registros de pruebas`);
       }
     } catch (err) {
       setError(err.message);
-      toast.error(`Failed to load test logs: ${err.message}`);
+      toast.error(`No se pudieron cargar los registros de pruebas: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -47,10 +47,10 @@ export default function TestLogsPage() {
   const handleDeleteLog = async (logId) => {
     try {
       await deleteTestLog(logId);
-      toast.success('Test log deleted successfully');
+      toast.success('Registro de prueba eliminado correctamente');
       loadLogs();
     } catch (err) {
-      toast.error(`Failed to delete test log: ${err.message}`);
+      toast.error(`No se pudo eliminar el registro de prueba: ${err.message}`);
     }
   };
 
@@ -59,22 +59,22 @@ export default function TestLogsPage() {
 
     try {
       await Promise.all(selectedLogIds.map((id) => deleteTestLog(id)));
-      toast.success(`${selectedLogIds.length} test logs deleted successfully`);
+      toast.success(`${selectedLogIds.length} registros de pruebas eliminados correctamente`);
       setBulkMode(false);
       loadLogs();
     } catch (err) {
-      toast.error(`Failed to delete test logs: ${err.message}`);
+      toast.error(`No se pudieron eliminar los registros de pruebas: ${err.message}`);
     }
   };
 
   const handleDeleteAll = async () => {
     try {
       const result = await deleteAllTestLogs();
-      toast.success(`${result.count} test logs deleted successfully`);
+      toast.success(`${result.count} registros de pruebas eliminados correctamente`);
       setShowDeleteConfirm(false);
       loadLogs();
     } catch (err) {
-      toast.error(`Failed to delete all test logs: ${err.message}`);
+      toast.error(`No se pudieron eliminar todos los registros de pruebas: ${err.message}`);
     }
   };
 
@@ -138,19 +138,19 @@ export default function TestLogsPage() {
   };
 
   const statusOptions = [
-    { value: 'all', label: 'All', count: logs.length },
+    { value: 'all', label: 'Todos', count: logs.length },
     {
       value: 'completed',
-      label: 'Completed',
+      label: 'Completados',
       count: logs.filter((l) => l.status === 'completed').length,
     },
     {
       value: 'running',
-      label: 'Running',
+      label: 'En ejecucion',
       count: logs.filter((l) => l.status === 'running').length,
     },
-    { value: 'queued', label: 'Queued', count: logs.filter((l) => l.status === 'queued').length },
-    { value: 'failed', label: 'Failed', count: logs.filter((l) => l.status === 'failed').length },
+    { value: 'queued', label: 'En cola', count: logs.filter((l) => l.status === 'queued').length },
+    { value: 'failed', label: 'Fallidos', count: logs.filter((l) => l.status === 'failed').length },
   ];
 
   return (
@@ -158,9 +158,9 @@ export default function TestLogsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-text mb-2">Test Logs</h1>
+          <h1 className="text-3xl font-bold text-text mb-2">Registros de pruebas</h1>
           <p className="text-textMuted text-sm">
-            {filteredLogs.length} {filteredLogs.length === 1 ? 'log' : 'logs'}{' '}
+            {filteredLogs.length} {filteredLogs.length === 1 ? 'registro' : 'registros'}{' '}
             {filterStatus !== 'all' && `(${filterStatus})`}
           </p>
         </div>
@@ -168,13 +168,13 @@ export default function TestLogsPage() {
         <div className="flex items-center gap-3">
           <BaseButton variant="secondary" onClick={loadLogs} disabled={loading}>
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Refresh
+            Actualizar
           </BaseButton>
 
           {logs.length > 0 && (
             <BaseButton variant="secondary" onClick={() => setBulkMode(!bulkMode)}>
               {bulkMode ? <X size={16} /> : <CheckSquare size={16} />}
-              {bulkMode ? 'Cancel Selection' : 'Select'}
+              {bulkMode ? 'Cancelar seleccion' : 'Seleccionar'}
             </BaseButton>
           )}
         </div>
@@ -221,13 +221,13 @@ export default function TestLogsPage() {
                 onClick={toggleSelectAll}
                 className="text-sm text-textMuted hover:text-text transition-colors"
               >
-                {selectedLogIds.length === filteredLogs.length ? 'Deselect All' : 'Select All'}
+                {selectedLogIds.length === filteredLogs.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
               </button>
 
               {selectedLogIds.length > 0 && (
                 <BaseButton variant="danger" onClick={handleDeleteSelected}>
                   <Trash2 size={16} />
-                  Delete Selected ({selectedLogIds.length})
+                  Eliminar seleccionados ({selectedLogIds.length})
                 </BaseButton>
               )}
             </div>
@@ -237,7 +237,7 @@ export default function TestLogsPage() {
           {!bulkMode && logs.length > 0 && (
             <BaseButton variant="danger" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={16} />
-              Delete All
+              Eliminar todo
             </BaseButton>
           )}
       </BaseCard>
@@ -253,20 +253,20 @@ export default function TestLogsPage() {
       {loading && (
         <div className="text-center py-12">
           <RefreshCw size={48} className="animate-spin text-accent mx-auto mb-4" />
-          <p className="text-textMuted">Loading test logs...</p>
+          <p className="text-textMuted">Cargando registros de pruebas...</p>
         </div>
       )}
 
       {/* Empty State */}
       {!loading && filteredLogs.length === 0 && (
         <BaseCard className="card-section text-center py-12">
-          <p className="text-textMuted text-lg">No test logs found</p>
+          <p className="text-textMuted text-lg">No se encontraron registros de pruebas</p>
           {filterStatus !== 'all' && (
             <button
               onClick={() => setFilterStatus('all')}
               className="mt-4 text-accent hover:underline"
             >
-              Clear filter
+              Limpiar filtro
             </button>
           )}
         </BaseCard>
@@ -330,15 +330,15 @@ export default function TestLogsPage() {
                       )}
 
                       <div className="flex items-center gap-4 text-xs text-textMuted mt-2">
-                        <span>Created: <strong>{formatDate(log.createdAt)}</strong></span>
-                        {duration !== 'N/A' && <span>Duration: <strong>{duration}</strong></span>}
+                        <span>Creado: <strong>{formatDate(log.createdAt)}</strong></span>
+                        {duration !== 'N/A' && <span>Duracion: <strong>{duration}</strong></span>}
                       </div>
                     </div>
 
                     {/* Stats */}
                     {stats && (
                       <div className="text-right text-sm flex-shrink-0">
-                        <p className="text-text font-bold mb-1">{stats.total} requests</p>
+                        <p className="text-text font-bold mb-1">{stats.total} peticiones</p>
                         <div className="flex items-center gap-2 text-xs">
                           <span className="text-green-600">{stats.success} ✓</span>
                           <span className="text-red-600">{stats.error} ✗</span>
@@ -354,7 +354,7 @@ export default function TestLogsPage() {
                           e.stopPropagation();
                           handleDeleteLog(log.id);
                         }}
-                        title="Delete log"
+                        tooltip="Eliminar registro"
                       >
                         <Trash2 size={18} />
                       </BaseButton>
@@ -374,18 +374,18 @@ export default function TestLogsPage() {
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
           <BaseCard className="max-w-md w-full p-6 bg-background">
-            <h3 className="text-xl font-bold text-text mb-4">Delete All Test Logs?</h3>
+            <h3 className="text-xl font-bold text-text mb-4">Eliminar todos los registros de pruebas?</h3>
             <p className="text-textMuted mb-6">
-              This action will permanently delete all {logs.length} test logs. This cannot be
-              undone.
+              Esta accion eliminara permanentemente los {logs.length} registros de pruebas. No se
+              puede deshacer.
             </p>
             <div className="flex justify-end gap-3">
               <BaseButton variant="secondary" onClick={() => setShowDeleteConfirm(false)}>
-                Cancel
+                Cancelar
               </BaseButton>
               <BaseButton variant="danger" onClick={handleDeleteAll}>
                 <Trash2 size={16} />
-                Delete All
+                Eliminar todo
               </BaseButton>
             </div>
           </BaseCard>

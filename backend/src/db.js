@@ -29,6 +29,14 @@ import {
   deleteTestConfig,
 } from './db/testConfigs.js';
 
+import {
+  createCollection,
+  updateCollection,
+  getCollection,
+  listCollections,
+  deleteCollection,
+} from './db/collections.js';
+
 // =============== JOBS EXPORTS ===============
 export {
   createJob,
@@ -53,5 +61,14 @@ export {
   getTestConfig,
   listTestConfigs,
   deleteTestConfig,
+};
+
+// =============== COLLECTIONS EXPORTS ===============
+export {
+  createCollection,
+  updateCollection,
+  getCollection,
+  listCollections,
+  deleteCollection,
 };
  

@@ -98,7 +98,7 @@
   .form-input,
   .form-select,
   .form-textarea {
-    @apply w-full h-fit px-3 py-2 rounded-xl text-base border border-gray-200 bg-white text-text transition-colors outline-none;
+    @apply w-full h-fit py-1 px-2 rounded-lg text-base border border-gray-200 bg-white text-text transition-colors outline-none;
     max-height: 256px;
     max-width: 100%;
     overflow: auto;
@@ -151,6 +151,9 @@
   .form-input-small:focus {
     @apply outline-none border-secondary;
   }
+  .form-input-checkbox {
+    @apply w-4 h-4 cursor-pointer;
+  }
 }
 
 /* ============================================
@@ -159,7 +162,7 @@
 
 @layer components {
   .badge {
-    @apply inline-flex items-center justify-center gap-1 h-fit w-fit px-3 py-1 rounded-full border text-xs font-bold;
+    @apply inline-flex items-center justify-center gap-1 h-fit w-fit px-2 py-0.5 rounded-full border text-xs;
   }
 
   .badge-success {
@@ -184,7 +187,7 @@
   }
 
   .badge-secondary {
-    @apply text-secondary bg-bg border-border;
+    @apply text-secondary bg-primary border-border;
   }
 
   /* Status badge inline styles */
@@ -277,7 +280,7 @@
   }
 
   .expandible-header {
-    @apply w-full flex flex-row items-center justify-between p-1 cursor-pointer;
+    @apply w-full flex flex-row items-center justify-between p-2 cursor-pointer;
   }
 
   .expandible-content {
@@ -476,12 +479,12 @@
 
 @layer components {
   .modal-overlay {
-    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    @apply fixed inset-0 z-50 flex items-center justify-center p-2;
     background: rgba(0, 0, 0, 0.5);
   }
 
   .modal-panel {
-    @apply bg-bg rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-border;
+    @apply bg-white rounded-2xl shadow-2xl max-w-5xl w-full h-full overflow-hidden flex flex-col border border-border;
   }
 
   .modal-small {
@@ -600,7 +603,7 @@
 
   /* Sidebar navigation */
   .sidebar-nav {
-    @apply flex-1 px-2 py-4 space-y-2;
+    @apply flex-1 flex-col px-2 py-4 space-y-2;
   }
 
   .sidebar-nav-item {
@@ -899,6 +902,64 @@
 
   .live-indicator-red {
     @apply bg-red-500;
+  }
+}
+
+/* ============================================
+   TOOLTIPS
+   ============================================ */
+
+@layer components {
+  .tooltip-floating {
+    @apply fixed z-[9999] px-2 py-1.5 text-xs font-medium text-white rounded-md
+           max-w-xs whitespace-normal break-words pointer-events-none select-none
+           opacity-0 transition-opacity duration-150;
+    --tooltip-bg: rgb(31 41 55 / 0.95);
+    background-color: var(--tooltip-bg);
+    transform: translateZ(0);
+  }
+
+  .tooltip-floating.is-visible {
+    @apply opacity-100;
+  }
+
+  .tooltip-arrow {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border-style: solid;
+  }
+
+  .tooltip-arrow-top {
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px 6px 0 6px;
+    border-color: var(--tooltip-bg) transparent transparent transparent;
+  }
+
+  .tooltip-arrow-bottom {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 0 6px 6px 6px;
+    border-color: transparent transparent var(--tooltip-bg) transparent;
+  }
+
+  .tooltip-arrow-left {
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 6px 0 6px 6px;
+    border-color: transparent transparent transparent var(--tooltip-bg);
+  }
+
+  .tooltip-arrow-right {
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 6px 6px 6px 0;
+    border-color: transparent var(--tooltip-bg) transparent transparent;
   }
 }
 

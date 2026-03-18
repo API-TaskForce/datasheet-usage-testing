@@ -148,6 +148,38 @@ export default function DummyApiControlPanel({
             />
           </label>
         </div>
+
+        <div className="flex flex-row justify-between items-center p-2">
+          <p className="text-text font-bold">Burst</p>
+        </div>
+
+        <div className="px-2 pb-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-xs">
+            <span>Tamaño de burst (requests simultáneos)</span>
+            <input
+              type="number"
+              min="2"
+              max="200"
+              value={values.burstSize ?? 20}
+              onChange={change('burstSize', toInt)}
+              disabled={disabled}
+              className="form-input"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs">
+            <span>Probabilidad de burst (%)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={values.burstProbability ?? 15}
+              onChange={change('burstProbability', toInt)}
+              disabled={disabled}
+              className="form-input"
+            />
+          </label>
+        </div>
       </div>
 
       <div className="mt-2 p-2 flex justify-end">

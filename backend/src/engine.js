@@ -8,6 +8,164 @@ const MAX_BODY_SIZE = 100 * 1024;
 
 export const activeJobs = new Map();
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+// Box-Muller transform for gaussian samples
+function sampleNormal(mean, stdDev) {
+  const u1 = Math.max(Number.MIN_VALUE, Math.random());
+  const u2 = Math.random();
+  const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  return mean + z0 * stdDev;
+}
+
+function getUserLikeDelayMs(config) {
+  const pacing = config?.pacing || {};
+  const baseMean = Number.isFinite(pacing?.meanMs)
+    ? Math.max(20, pacing.meanMs)
+    : Math.max(20, Number(config?.intervalMs) || 220);
+  const stdDev = Number.isFinite(pacing?.stdDevMs)
+    ? Math.max(5, pacing.stdDevMs)
+    : Math.max(10, baseMean * 0.35);
+  const minDelay = Number.isFinite(pacing?.minMs) ? Math.max(0, pacing.minMs) : 15;
+  const maxDelay = Number.isFinite(pacing?.maxMs)
+    ? Math.max(minDelay, pacing.maxMs)
+    : Math.max(120, baseMean * 5);
+
+  // Mostly normal user rhythm + occasional very-fast burst + occasional thinking pause.
+  const r = Math.random();
+  let delay;
+  if (r < 0.12) {
+    delay = sampleNormal(Math.max(8, baseMean * 0.35), Math.max(3, stdDev * 0.3));
+  } else if (r < 0.92) {
+    delay = sampleNormal(baseMean, stdDev);
+  } else {
+    delay = sampleNormal(baseMean * 2.1, stdDev * 1.2);
+  }
+
+  return Math.max(minDelay, Math.min(maxDelay, Math.round(delay)));
+}
+
+function parseRetryAfterSeconds(value) {
+  if (value == null) return null;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber) && asNumber > 0) {
+    return Math.max(1, Math.ceil(asNumber));
+  }
+
+  const asDateMs = Date.parse(raw);
+  if (Number.isFinite(asDateMs)) {
+    const seconds = Math.ceil((asDateMs - Date.now()) / 1000);
+    return seconds > 0 ? seconds : null;
+  }
+
+  return null;
+}
+
+function buildRateLimiter(config) {
+  const limits = config?.rateControl || {};
+  const limit = Number(limits?.rateMax);
+  const windowSeconds = Number(limits?.windowSeconds);
+  const windowModel =
+    limits?.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW';
+
+  if (!Number.isFinite(limit) || !Number.isFinite(windowSeconds) || limit <= 0 || windowSeconds <= 0) {
+    return null;
+  }
+
+  return {
+    limit: Math.max(1, Math.floor(limit)),
+    windowMs: Math.max(1000, Math.floor(windowSeconds * 1000)),
+    windowModel,
+    fixedWindowStartMs: Date.now(),
+    fixedWindowCount: 0,
+    slidingAcceptedMs: [],
+  };
+}
+
+function tryAcquireRateToken(state, tsMs) {
+  const limiter = state.rateLimiter;
+  if (!limiter) return 0;
+
+  if (limiter.windowModel === 'SLIDING_WINDOW') {
+    const cutoff = tsMs - limiter.windowMs;
+    while (limiter.slidingAcceptedMs.length > 0 && limiter.slidingAcceptedMs[0] < cutoff) {
+      limiter.slidingAcceptedMs.shift();
+    }
+
+    if (limiter.slidingAcceptedMs.length < limiter.limit) {
+      limiter.slidingAcceptedMs.push(tsMs);
+      return 0;
+    }
+
+    const oldest = limiter.slidingAcceptedMs[0];
+    return Math.max(1, oldest + limiter.windowMs - tsMs);
+  }
+
+  if (tsMs - limiter.fixedWindowStartMs >= limiter.windowMs) {
+    limiter.fixedWindowStartMs = tsMs;
+    limiter.fixedWindowCount = 0;
+  }
+
+  if (limiter.fixedWindowCount < limiter.limit) {
+    limiter.fixedWindowCount += 1;
+    return 0;
+  }
+
+  return Math.max(1, limiter.fixedWindowStartMs + limiter.windowMs - tsMs);
+}
+
+function getFallbackCooldownSeconds(config) {
+  const rateControlCooldown = Number(config?.rateControl?.cooldownSeconds);
+  const dummyCooldown = Number(config?.dummyConfig?.cooldownSeconds);
+
+  if (Number.isFinite(rateControlCooldown) && rateControlCooldown > 0) {
+    return Math.max(1, Math.ceil(rateControlCooldown));
+  }
+
+  if (Number.isFinite(dummyCooldown) && dummyCooldown > 0) {
+    return Math.max(1, Math.ceil(dummyCooldown));
+  }
+
+  return 15;
+}
+
+async function waitForSendWindow(config, state) {
+  for (;;) {
+    const nowMs = Date.now();
+    const activeCooldownMs = Math.max(0, (state.cooldownUntilMs || 0) - nowMs);
+    if (activeCooldownMs > 0) {
+      await sleep(activeCooldownMs);
+      continue;
+    }
+
+    const limiterDelayMs = tryAcquireRateToken(state, nowMs);
+    if (limiterDelayMs > 0) {
+      const limiterCooldownMs = Math.max(
+        limiterDelayMs,
+        getFallbackCooldownSeconds(config) * 1000
+      );
+      state.cooldownUntilMs = Math.max(state.cooldownUntilMs || 0, nowMs + limiterCooldownMs);
+      await sleep(limiterDelayMs);
+      continue;
+    }
+
+    return;
+  }
+}
+
+function applyClientErrorCooldown(config, state, retryAfterRaw) {
+  const retryAfterSeconds = parseRetryAfterSeconds(retryAfterRaw);
+  const cooldownSeconds = retryAfterSeconds || getFallbackCooldownSeconds(config);
+  const cooldownUntilMs = Date.now() + cooldownSeconds * 1000;
+  state.cooldownUntilMs = Math.max(state.cooldownUntilMs || 0, cooldownUntilMs);
+}
+
 // Serializar body de forma segura
 function serializeBody(body) {
   if (!body) return null;
@@ -191,7 +349,7 @@ function buildDummyMockResult({ attempt, config, dummyCfg }) {
 }
 
 // Ejecuta la lógica de un worker individual (un "cliente")
-// Todas las peticiones se lanzan en paralelo sin intervalos
+// Cada cliente envía peticiones con ritmo humano (distribución normal + jitter).
 async function executeWorker({ id, quota, config, state }) {
   const { endpoint, request, timeoutMs } = config;
   const requestMethod = request.method || 'GET';
@@ -200,7 +358,8 @@ async function executeWorker({ id, quota, config, state }) {
   const isDummyMode = Boolean(config?.dummyMode);
   const dummyCfg = config?.dummyConfig || {};
 
-  const requestPromises = Array.from({ length: quota }).map(async () => {
+  for (let i = 0; i < quota; i++) {
+    await waitForSendWindow(config, state);
     console.log(`Worker lanzando peticion ${state.globalSent + 1}`);
     const start = Date.now();
     const attempt = ++state.globalSent; // Contador global compartido
@@ -216,7 +375,14 @@ async function executeWorker({ id, quota, config, state }) {
         { jobId: id, status_type: statusType },
         result.durationMs / 1000
       );
-      return;
+      if (result.statusCode >= 400 && result.statusCode < 500) {
+        applyClientErrorCooldown(config, state, result.retryAfter);
+      }
+      if (i < quota - 1) {
+        const delayMs = getUserLikeDelayMs(config);
+        await sleep(delayMs);
+      }
+      continue;
     }
 
     let response;
@@ -237,8 +403,9 @@ async function executeWorker({ id, quota, config, state }) {
     }
 
     const elapsed = Date.now() - start;
-    const statusCode = response.status;
-    const statusType = response.ok ? 'ok' : statusCode === 429 ? 'rateLimit' : 'error';
+    const statusCode = response?.status || 0;
+    const isOkStatus = statusCode >= 200 && statusCode < 300;
+    const statusType = isOkStatus ? 'ok' : statusCode === 429 ? 'rateLimit' : 'error';
     
     engineRequestsCounter.inc({ jobId: id, status_type: statusType });
     engineRequestDurationHistogram.observe({ jobId: id, status_type: statusType }, elapsed / 1000);
@@ -306,10 +473,16 @@ async function executeWorker({ id, quota, config, state }) {
     state.results.push(result);
 
     updateMetrics(state.metrics, elapsed, statusCode);
-  });
 
-  // Lanzar todas las peticiones en paralelo sin esperas
-  await Promise.allSettled(requestPromises);
+    if (statusCode >= 400 && statusCode < 500) {
+      applyClientErrorCooldown(config, state, retryAfter || rateLimitInfo?.retryAfter);
+    }
+
+    if (i < quota - 1) {
+      const delayMs = getUserLikeDelayMs(config);
+      await sleep(delayMs);
+    }
+  }
 }
 
 export async function runJob(id) {
@@ -330,6 +503,8 @@ export async function runJob(id) {
     results: [],
     globalSent: 0,
     metrics: { total: 0, ok: 0, error: 0, rateLimit: 0, avgMs: 0 },
+    cooldownUntilMs: 0,
+    rateLimiter: buildRateLimiter(config),
   };
 
   activeJobs.set(id, state);

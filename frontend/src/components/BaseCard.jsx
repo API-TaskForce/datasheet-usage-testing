@@ -1,5 +1,5 @@
 import React from 'react';
 
 export default function BaseCard({ children, className = '' }) {
-  return <div className={`section-card ${className}`}>{children}</div>;
+  return <div className={`section-card h-full ${className}`}>{children}</div>;
 }

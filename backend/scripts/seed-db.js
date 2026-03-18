@@ -9,6 +9,43 @@ const LOGS_FILE = path.join(DATA_DIR, 'test-logs.json');
 
 const nowIso = () => new Date().toISOString();
 
+// ── Image URL inference (mirrors apiTemplatesService.js) ──────────────────────
+const NO_LOGO_DOMAINS = new Set([
+  'jsonplaceholder.typicode.com',
+  'httpbin.org',
+  'reqres.in',
+  'localhost',
+  '127.0.0.1',
+]);
+
+function shouldSkipLogoDomain(domain) {
+  if (!domain) return true;
+  const normalized = String(domain).trim().toLowerCase();
+  if (!normalized) return true;
+  if (NO_LOGO_DOMAINS.has(normalized)) return true;
+  if (normalized.endsWith('.local')) return true;
+  return false;
+}
+
+function buildLogoUrl(domain) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+}
+
+function inferImageUrl(apiUri) {
+  if (!apiUri || typeof apiUri !== 'string') return null;
+  try {
+    const trimmed = apiUri.trim();
+    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const { hostname } = new URL(normalized);
+    const domain = String(hostname || '').trim().toLowerCase();
+    if (shouldSkipLogoDomain(domain)) return null;
+    return buildLogoUrl(domain);
+  } catch {
+    return null;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PUBLIC_API_SEEDS = [
   {
     name: 'JSONPlaceholder',
@@ -179,8 +216,11 @@ function buildTemplateFromSeed(seed) {
     authCredential: '',
     requestMethod: 'GET',
     apiUri: seed.apiUri,
+    imageUrl: inferImageUrl(seed.apiUri),
     datasheet: seed.datasheet,
     status: 'active',
+    collectionId: null,
+    collectionOrder: null,
     isDummy: false,
     dummyConfig: null,
     createdAt,
@@ -239,20 +279,27 @@ async function seedTemplatesDb() {
     const key = String(seed.apiUri).toLowerCase();
     if (resolvedByUri.has(key)) {
       const existingTemplate = resolvedByUri.get(key);
-      if (
-        existingTemplate &&
-        typeof existingTemplate === 'object' &&
-        !existingTemplate.isDummy &&
-        existingTemplate.datasheet !== seed.datasheet
-      ) {
-        const patched = {
-          ...existingTemplate,
-          datasheet: seed.datasheet,
-          updatedAt: nowIso(),
-        };
-        db.apiTemplates[patched.id] = patched;
-        resolvedByUri.set(key, patched);
-        updated += 1;
+      if (existingTemplate && typeof existingTemplate === 'object' && !existingTemplate.isDummy) {
+        const needsDatasheetUpdate = existingTemplate.datasheet !== seed.datasheet;
+        const needsImageUpdate = !existingTemplate.imageUrl;
+        const inferredImage = inferImageUrl(seed.apiUri);
+        const needsFieldsUpdate =
+          !Object.prototype.hasOwnProperty.call(existingTemplate, 'collectionId') ||
+          !Object.prototype.hasOwnProperty.call(existingTemplate, 'collectionOrder');
+
+        if (needsDatasheetUpdate || needsImageUpdate || needsFieldsUpdate) {
+          const patched = {
+            collectionId: null,
+            collectionOrder: null,
+            ...existingTemplate,
+            datasheet: seed.datasheet,
+            ...(needsImageUpdate && inferredImage ? { imageUrl: inferredImage } : {}),
+            updatedAt: nowIso(),
+          };
+          db.apiTemplates[patched.id] = patched;
+          resolvedByUri.set(key, patched);
+          updated += 1;
+        }
       }
       continue;
     }

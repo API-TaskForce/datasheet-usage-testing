@@ -12,6 +12,18 @@ const testSchema = Joi.object({
   totalRequests: Joi.number().integer().min(1).default(1),
   intervalMs: Joi.number().integer().min(0).default(0),
   timeoutMs: Joi.number().integer().min(0).default(5000),
+  pacing: Joi.object({
+    meanMs: Joi.number().integer().min(1).optional(),
+    stdDevMs: Joi.number().integer().min(1).optional(),
+    minMs: Joi.number().integer().min(0).optional(),
+    maxMs: Joi.number().integer().min(1).optional(),
+  }).optional(),
+  rateControl: Joi.object({
+    rateMax: Joi.number().integer().min(1).optional(),
+    windowModel: Joi.string().valid('FIXED_WINDOW', 'SLIDING_WINDOW').optional(),
+    windowSeconds: Joi.number().integer().min(1).optional(),
+    cooldownSeconds: Joi.number().integer().min(1).optional(),
+  }).optional().allow(null),
   dummyMode: Joi.boolean().optional().default(false),
   dummyConfig: Joi.object({
     quotaMax: Joi.number().integer().min(1).optional(),
@@ -58,6 +70,14 @@ const templateSchema = Joi.object({
     .messages({
       'string.uri': 'API URI must be a valid URL'
     }),
+
+  imageUrl: Joi.string()
+    .optional()
+    .allow('', null)
+    .uri()
+    .messages({
+      'string.uri': 'Image URL must be a valid URL'
+    }),
   
   datasheet: Joi.string()
     .required()
@@ -71,6 +91,16 @@ const templateSchema = Joi.object({
     .optional()
     .valid('active', 'inactive')
     .default('active'),
+
+  collectionId: Joi.string()
+    .optional()
+    .allow(null, ''),
+
+  collectionOrder: Joi.number()
+    .integer()
+    .min(1)
+    .optional()
+    .allow(null),
 
   isDummy: Joi.boolean().optional(),
 
@@ -87,6 +117,44 @@ const templateSchema = Joi.object({
     .optional()
     .allow(null)
 });
+
+const collectionSchema = Joi.object({
+  name: Joi.string()
+    .required()
+    .min(2)
+    .max(80)
+    .trim(),
+  description: Joi.string()
+    .optional()
+    .allow('')
+    .max(240),
+  color: Joi.string()
+    .optional()
+    .allow('')
+    .pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
+    .messages({
+      'string.pattern.base': 'Color must be a valid hex code (e.g. #0ea5e9)'
+    })
+});
+
+const collectionUpdateSchema = Joi.object({
+  name: Joi.string()
+    .optional()
+    .min(2)
+    .max(80)
+    .trim(),
+  description: Joi.string()
+    .optional()
+    .allow('')
+    .max(240),
+  color: Joi.string()
+    .optional()
+    .allow('')
+    .pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
+    .messages({
+      'string.pattern.base': 'Color must be a valid hex code (e.g. #0ea5e9)'
+    })
+}).min(1);
 
 export function validateTestSchema(req, res, next) {
   const { error, value } = testSchema.validate(req.body, { stripUnknown: true });
@@ -108,4 +176,36 @@ export function validateTemplateSchema(req, res, next) {
   next();
 }
 
-export { testSchema, templateSchema }; 
+export function validateCollectionSchema(req, res, next) {
+  const { error, value } = collectionSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false,
+  });
+  if (error) {
+    const details = error.details.reduce((acc, err) => {
+      acc[err.path.join('.')] = err.message;
+      return acc;
+    }, {});
+    return res.status(400).json({ error: 'Validation failed', details });
+  }
+  req.body = value;
+  next();
+}
+
+export function validateCollectionUpdateSchema(req, res, next) {
+  const { error, value } = collectionUpdateSchema.validate(req.body, {
+    stripUnknown: true,
+    abortEarly: false,
+  });
+  if (error) {
+    const details = error.details.reduce((acc, err) => {
+      acc[err.path.join('.')] = err.message;
+      return acc;
+    }, {});
+    return res.status(400).json({ error: 'Validation failed', details });
+  }
+  req.body = value;
+  next();
+}
+
+export { testSchema, templateSchema, collectionSchema, collectionUpdateSchema }; 

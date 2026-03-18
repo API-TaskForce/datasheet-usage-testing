@@ -220,7 +220,7 @@ export default function TestConfigModal({ template, onClose }) {
                               variant="secondary"
                               onClick={() => handleSetDefault(c.id)}
                               size="sm"
-                              title="Set as default"
+                              tooltip="Marcar como predeterminada"
                             >
                               Set Default
                             </BaseButton>
@@ -386,6 +386,7 @@ export default function TestConfigModal({ template, onClose }) {
                   type="checkbox"
                   checked={Boolean(formData.isDefault)}
                   onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
+                  className="form-input-checkbox"
                 />
                 Usar este test preconfigurado como predeterminado
               </label>

@@ -48,7 +48,13 @@ export default function ApiDashboardActionBar({
           size="sm"
           onClick={onToggleMode}
           disabled={running || isDummyTemplate}
-          title={isDummyTemplate ? 'Las APIs Dummy siempre usan modo simulado' : undefined}
+          tooltip={
+            isDummyTemplate
+              ? 'Las APIs Dummy siempre usan modo simulado'
+              : testMode === 'real'
+                ? 'Cambiar a modo simulado (sin peticiones reales)'
+                : 'Cambiar a modo real (envía peticiones a la API)'
+          }
         >
           {testMode === 'real' ? <Rocket size={16} /> : <FlaskConical size={16} />}
           {isDummyTemplate
@@ -68,6 +74,13 @@ export default function ApiDashboardActionBar({
           disabled={running || inCooldown}
           aria-haspopup="menu"
           aria-expanded={openMenu}
+          tooltip={
+            inCooldown
+              ? 'Esperando fin del periodo de cooldown tras un error 4XX'
+              : running
+                ? 'Test en ejecución'
+                : 'Lanzar un test manual con la configuración actual'
+          }
         >
           <Play size={16} />
           {running
@@ -87,6 +100,7 @@ export default function ApiDashboardActionBar({
           disabled={running}
           aria-haspopup="menu"
           aria-expanded={openMenu}
+          tooltip="Ajustar parámetros del test manual (peticiones, pacing, rate control…)"
         >
           <SlidersHorizontal size={16} />
           {running ? 'Configurando...' : 'Configurar Test Manual'}
@@ -97,6 +111,7 @@ export default function ApiDashboardActionBar({
           size="sm"
           onClick={onToggleDatasheet}
           disabled={loadingDatasheet}
+          tooltip={showDatasheet ? 'Ocultar la hoja de datos de la API' : 'Mostrar la hoja de datos con todos los endpoints y parámetros'}
         >
           {showDatasheet ? (
             <>

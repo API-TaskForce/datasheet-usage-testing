@@ -23,7 +23,19 @@ import {
   deleteConfig,
   getConfig,
 } from '../controllers/testConfigsController.js';
-import { validateTestSchema, validateTemplateSchema } from '../middlewares/validator.js';
+import {
+  createCollection,
+  getCollection,
+  getAllCollectionsController,
+  updateCollection,
+  deleteCollection,
+} from '../controllers/apiCollectionsController.js';
+import {
+  validateTestSchema,
+  validateTemplateSchema,
+  validateCollectionSchema,
+  validateCollectionUpdateSchema,
+} from '../middlewares/validator.js';
 
 const router = express.Router();
 
@@ -32,6 +44,7 @@ router.use((req, res, next) => {
   if (req.baseUrl.includes('/templates')) req.routeType = 'templates';
   else if (req.baseUrl.includes('/tests')) req.routeType = 'tests';
   else if (req.baseUrl.includes('/test-configs')) req.routeType = 'configs';
+  else if (req.baseUrl.includes('/collections')) req.routeType = 'collections';
   next();
 });
 
@@ -43,6 +56,8 @@ router.get('/', (req, res) => {
     getAllTestsController(req, res);
   } else if (req.routeType === 'templates') {
     getAllTemplate(req, res);
+  } else if (req.routeType === 'collections') {
+    getAllCollectionsController(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }
@@ -54,6 +69,10 @@ router.post('/', (req, res) => {
   } else if (req.routeType === 'templates') {
     validateTemplateSchema(req, res, () => {
       createTemplate(req, res);
+    });
+  } else if (req.routeType === 'collections') {
+    validateCollectionSchema(req, res, () => {
+      createCollection(req, res);
     });
   } else {
     res.status(404).json({ error: 'Not found' });
@@ -102,6 +121,8 @@ router.get('/:id', (req, res) => {
     getTest(req, res);
   } else if (req.routeType === 'templates') {
     getTemplate(req, res);
+  } else if (req.routeType === 'collections') {
+    getCollection(req, res);
   } else {
     res.status(404).json({ error: 'Not found' });
   }
@@ -114,6 +135,10 @@ router.put('/:id', (req, res) => {
     validateTemplateSchema(req, res, () => {
       updateTemplate(req, res);
     });
+  } else if (req.routeType === 'collections') {
+    validateCollectionUpdateSchema(req, res, () => {
+      updateCollection(req, res);
+    });
   } else {
     res.status(404).json({ error: 'Not found' });
   }
@@ -124,6 +149,8 @@ router.delete('/:id', (req, res) => {
     deleteConfig(req, res);
   } else if (req.routeType === 'templates') {
     deleteTemplate(req, res);
+  } else if (req.routeType === 'collections') {
+    deleteCollection(req, res);
   } else if (req.routeType === 'tests') {
     deleteTestController(req, res);
   } else {

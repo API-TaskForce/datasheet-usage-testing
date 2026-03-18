@@ -148,6 +148,8 @@ const DEFAULT_DUMMY_CONTROL = {
   windowSeconds: 60,
   cooldownSeconds: 30,
   totalRequests: 80,
+  burstSize: 20,
+  burstProbability: 15,
 };
 
 const clampInt = (value, min, fallback) => {
@@ -155,6 +157,41 @@ const clampInt = (value, min, fallback) => {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, parsed);
 };
+
+function sampleNormal(mean, stdDev) {
+  const u1 = Math.max(Number.MIN_VALUE, Math.random());
+  const u2 = Math.random();
+  const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  return mean + z0 * stdDev;
+}
+
+function buildUserLikePacing(meanMs = 220) {
+  const mean = Math.max(20, Number(meanMs) || 220);
+  const stdDev = Math.max(10, mean * 0.35);
+  const minMs = 15;
+  const maxMs = Math.max(120, mean * 5);
+
+  const drawDelayMs = () => {
+    const r = Math.random();
+    let delay;
+    if (r < 0.12) {
+      delay = sampleNormal(Math.max(8, mean * 0.35), Math.max(3, stdDev * 0.3));
+    } else if (r < 0.92) {
+      delay = sampleNormal(mean, stdDev);
+    } else {
+      delay = sampleNormal(mean * 2.1, stdDev * 1.2);
+    }
+    return Math.max(minMs, Math.min(maxMs, Math.round(delay)));
+  };
+
+  return {
+    meanMs: Math.round(mean),
+    stdDevMs: Math.round(stdDev),
+    minMs,
+    maxMs: Math.round(maxMs),
+    drawDelayMs,
+  };
+}
 
 export default function ApiDashboardView({ template }) {
   const [running, setRunning] = useState(false);
@@ -287,6 +324,7 @@ export default function ApiDashboardView({ template }) {
       setShowModal(false);
 
       const instant = Boolean(options?.instant);
+      const organicPlayback = Boolean(options?.organicPlayback);
 
       if (instant) {
         processResults(results);
@@ -308,6 +346,46 @@ export default function ApiDashboardView({ template }) {
       let idx = 0;
       const progressive = [];
 
+      const finalizeSimulation = () => {
+        const finalSummary = buildSummaryFromResults(results);
+        setSummary(finalSummary);
+        setLiveResults(results);
+
+        addTestResult({
+          jobId: `${jobPrefix}-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          results,
+          summary: finalSummary,
+        });
+
+        setRunning(false);
+      };
+
+      if (organicPlayback) {
+        const playNext = () => {
+          progressive.push(results[idx]);
+          processResults(progressive);
+          idx += 1;
+
+          if (idx >= results.length) {
+            pollInterval.current = null;
+            finalizeSimulation();
+            return;
+          }
+
+          const prevTs = new Date(results[idx - 1]?.timestamp || 0).getTime();
+          const nextTs = new Date(results[idx]?.timestamp || 0).getTime();
+          const deltaMs = Number.isFinite(nextTs - prevTs) ? Math.max(0, nextTs - prevTs) : 75;
+
+          // Reproduce timestamps with compression so long gaps are still visible but not too slow.
+          const playbackDelay = Math.min(280, Math.max(16, Math.round(deltaMs * 0.12)));
+          pollInterval.current = setTimeout(playNext, playbackDelay);
+        };
+
+        playNext();
+        return;
+      }
+
       pollInterval.current = setInterval(() => {
         progressive.push(results[idx]);
         processResults(progressive);
@@ -316,18 +394,7 @@ export default function ApiDashboardView({ template }) {
         if (idx >= results.length) {
           clearInterval(pollInterval.current);
           pollInterval.current = null;
-          const finalSummary = buildSummaryFromResults(results);
-          setSummary(finalSummary);
-          setLiveResults(results);
-
-          addTestResult({
-            jobId: `${jobPrefix}-${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            results,
-            summary: finalSummary,
-          });
-
-          setRunning(false);
+          finalizeSimulation();
         }
       }, 75);
     },
@@ -393,80 +460,136 @@ export default function ApiDashboardView({ template }) {
     const totalRequests = Math.max(1, parseInt(config?.totalRequests || 80, 10));
     const now = Date.now();
     const cooldownBase = apiLimits.cooldownSeconds || 30;
+    const limitPerWindow = Math.max(1, parseInt(apiLimits?.rateMax || 60, 10));
+    const isSlidingWindow = apiLimits.windowModel === 'SLIDING_WINDOW';
+    const pacing = buildUserLikePacing(Number(config?.intervalMs) || 240);
 
-    // Simulate timestamps starting in the past so the data lands on past x-axis positions.
-    // Estimate total span: ~75 normal * 400ms + 2 cooldowns * cooldownBase
-    const estimatedNormalMs = totalRequests * 400;
-    const estimatedCooldownMs = 2 * cooldownBase * 1000;
-    const estimatedTotalMs = estimatedNormalMs + estimatedCooldownMs + 5000;
-    // Start far enough in the past that the last result lands ~5s ago
+    // Start in the past so points appear on chart history, including occasional cooldown events.
+    const estimatedTotalMs = totalRequests * 550 + cooldownBase * 1000 * 2 + 6000;
     let cursor = now - estimatedTotalMs;
+
+    const windowSeconds = Math.max(1, parseInt(apiLimits?.windowSeconds || 60, 10));
+    let windowStartMs = cursor;
+    let requestsInWindow = 0;
+    const slidingAccepted = [];
+
+    const availableCapacity = (tsMs) => {
+      if (isSlidingWindow) {
+        const cutoff = tsMs - windowSeconds * 1000;
+        while (slidingAccepted.length > 0 && slidingAccepted[0] < cutoff) {
+          slidingAccepted.shift();
+        }
+        return Math.max(0, limitPerWindow - slidingAccepted.length);
+      }
+
+      if (tsMs - windowStartMs >= windowSeconds * 1000) {
+        windowStartMs = tsMs;
+        requestsInWindow = 0;
+      }
+      return Math.max(0, limitPerWindow - requestsInWindow);
+    };
+
+    const consumeCapacity = (tsMs) => {
+      if (isSlidingWindow) {
+        slidingAccepted.push(tsMs);
+      } else {
+        requestsInWindow += 1;
+      }
+    };
+
+    const computeRetryAfter = (tsMs) => {
+      if (!isSlidingWindow) return cooldownBase;
+      if (slidingAccepted.length === 0) return cooldownBase;
+      const oldest = slidingAccepted[0];
+      return Math.max(1, Math.ceil((oldest + windowSeconds * 1000 - tsMs) / 1000));
+    };
+
     const simulatedResults = [];
 
-    for (let i = 0; i < totalRequests; i++) {
-      const triggerQuotaError =
-        i === Math.floor(totalRequests * 0.45) || i === Math.floor(totalRequests * 0.72);
-      const statusCode = triggerQuotaError ? 429 : 200;
-      const status = statusCode === 429 ? 'rate_limited' : 'ok';
-      const durationMs = 80 + Math.floor(Math.random() * 180);
+    let successfulRequests = 0;
+    let seq = 0;
 
-      const result = {
-        seq: i + 1,
-        timestamp: new Date(cursor).toISOString(),
-        status,
-        statusCode,
-        durationMs,
-        retryAfter: statusCode === 429 ? String(cooldownBase) : null,
-        request: {
-          url: buildEndpointFromConfig(config),
-          method: config?.method || template?.requestMethod || 'GET',
-          headers: buildHeadersFromTemplate(),
-          body: config?.body || null,
-        },
-        response: {
-          status: statusCode,
-          statusText: statusCode === 429 ? 'Too Many Requests' : 'OK',
-          headers:
+    while (successfulRequests < totalRequests) {
+      // Organic shape: occasional burst tick with many requests in the same instant.
+      const burstTick = Math.random() < 0.18;
+      const tickRequests = burstTick ? 8 + Math.floor(Math.random() * 13) : 1;
+
+      for (let j = 0; j < tickRequests && successfulRequests < totalRequests; j++) {
+        const jitterMs = burstTick ? Math.floor(Math.random() * 4) : 0;
+        const tsMs = cursor + jitterMs;
+        const cap = availableCapacity(tsMs);
+        const statusCode = cap > 0 ? 200 : 429;
+        const status = statusCode === 429 ? 'rate_limited' : 'ok';
+        const retryAfter = statusCode === 429 ? computeRetryAfter(tsMs) : null;
+
+        if (statusCode === 200) {
+          consumeCapacity(tsMs);
+          successfulRequests += 1;
+        }
+
+        seq += 1;
+        simulatedResults.push({
+          seq,
+          timestamp: new Date(tsMs).toISOString(),
+          status,
+          statusCode,
+          durationMs:
+            statusCode === 200
+              ? 80 + Math.floor(Math.random() * 220)
+              : 25 + Math.floor(Math.random() * 70),
+          retryAfter: retryAfter != null ? String(retryAfter) : null,
+          request: {
+            url: buildEndpointFromConfig(config),
+            method: config?.method || template?.requestMethod || 'GET',
+            headers: buildHeadersFromTemplate(),
+            body: config?.body || null,
+          },
+          response: {
+            status: statusCode,
+            statusText: statusCode === 429 ? 'Too Many Requests' : 'OK',
+            headers:
+              statusCode === 429
+                ? {
+                    'retry-after': String(retryAfter),
+                    'x-ratelimit-limit': String(limitPerWindow),
+                    'x-ratelimit-window': `${windowSeconds}s`,
+                  }
+                : {
+                    'x-ratelimit-limit': String(limitPerWindow),
+                    'x-ratelimit-window': `${windowSeconds}s`,
+                  },
+            body:
+              statusCode === 429
+                ? JSON.stringify({ error: 'Rate limit exceeded', simulated: true })
+                : JSON.stringify({ ok: true, simulated: true }),
+          },
+          rateLimit:
             statusCode === 429
               ? {
-                  'retry-after': String(cooldownBase),
-                  'x-ratelimit-limit': String(apiLimits?.rateMax || 60),
+                  detected: true,
+                  retryAfter,
+                  window: windowSeconds,
+                  limit: limitPerWindow,
                 }
-              : {},
-          body:
-            statusCode === 429
-              ? JSON.stringify({ error: 'Rate limit exceeded', simulated: true })
-              : JSON.stringify({ ok: true, simulated: true }),
-        },
-        rateLimit:
-          statusCode === 429
-            ? {
-                detected: true,
-                retryAfter: cooldownBase,
-                window: cooldownBase,
-                limit: apiLimits?.rateMax || null,
-              }
-            : null,
-      };
+              : null,
+        });
+      }
 
-      simulatedResults.push(result);
+      // Move cursor with organic pacing profile.
+      const baseDelay = pacing.drawDelayMs();
+      cursor += burstTick
+        ? Math.max(baseDelay, 700 + Math.floor(Math.random() * 1200))
+        : baseDelay;
 
-      if (triggerQuotaError) {
-        const cooldownGap =
-          apiLimits.windowModel === 'SLIDING_WINDOW'
-            ? Math.max(1, Math.floor(cooldownBase * 0.6))
-            : cooldownBase;
-        cursor += cooldownGap * 1000;
-      } else {
-        // Vary request spacing: some bursts (100-200ms), some slower (400-700ms)
-        const isBurst = Math.random() < 0.4;
-        cursor += isBurst
-          ? 100 + Math.floor(Math.random() * 100)
-          : 400 + Math.floor(Math.random() * 300);
+      // If a 4XX/429 was emitted in this tick, always skip the cooldown window.
+      const last = simulatedResults[simulatedResults.length - 1];
+      if (last?.statusCode >= 400 && last?.statusCode < 500) {
+        const jumpS = Number(last?.retryAfter || cooldownBase);
+        cursor += jumpS * 1000;
       }
     }
 
-    startProgressiveSimulation(simulatedResults, 'sim');
+    startProgressiveSimulation(simulatedResults, 'sim', { organicPlayback: true });
   };
 
   // ---------------------------------------------------------------------------
@@ -571,110 +694,211 @@ export default function ApiDashboardView({ template }) {
       },
     ];
 
-    const estimatedNormalMs = totalRequests * 4;
-    let cursor = now - estimatedNormalMs;
+    const DUMMY_IS_SLIDING = dummyControl?.windowModel === 'SLIDING_WINDOW';
+    // Burst events: configurable via DummyApiControlPanel
+    const BURST_SIZE = clampInt(dummyControl?.burstSize, 2, DEFAULT_DUMMY_CONTROL.burstSize);
+    const BURST_PROBABILITY = Math.min(1, Math.max(0, clampInt(dummyControl?.burstProbability, 0, DEFAULT_DUMMY_CONTROL.burstProbability)) / 100);
+
+    // Estimate total time range. Add extra buffer for burst-induced cooldowns.
+    const windowsNeeded = Math.ceil(totalRequests / Math.max(1, DUMMY_RPM_LIMIT));
+    const estimatedSpreadMs =
+      (windowsNeeded + 2) * DUMMY_WINDOW_S * 1000 + 3 * DUMMY_COOLDOWN_S * 1000;
+    let cursor = now - estimatedSpreadMs;
 
     const simulatedResults = [];
-    let remainingInWindow = DUMMY_RPM_LIMIT;
-    const rateLimitProbability = Math.min(
-      0.35,
-      Math.max(0.06, totalRequests / (DUMMY_RPM_LIMIT * 4))
-    );
 
-    for (let i = 0; i < totalRequests; i++) {
-      const triggerRateLimit = Math.random() < rateLimitProbability;
-      const statusCode = triggerRateLimit ? 429 : 200;
-      const status = statusCode === 429 ? 'rate_limited' : 'ok';
-      const durationMs =
-        statusCode === 429 ? 1 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 5);
+    // Fixed-window state
+    let windowStartMs = cursor;
+    let requestsInCurrentWindow = 0;
+    // Sliding-window state: chronological log of accepted request timestamps (ms)
+    const slidingLog = [];
+
+    let normalCount = 0;
+    let seqCounter = 0;
+
+    // --- Window model helpers ---
+
+    // Returns available token capacity at a given timestamp
+    const getCapacity = (tsMs) => {
+      if (DUMMY_IS_SLIDING) {
+        const cutoff = tsMs - DUMMY_WINDOW_S * 1000;
+        let active = 0;
+        for (let j = slidingLog.length - 1; j >= 0 && slidingLog[j] >= cutoff; j--) active++;
+        return Math.max(0, DUMMY_RPM_LIMIT - active);
+      }
+      return Math.max(0, DUMMY_RPM_LIMIT - requestsInCurrentWindow);
+    };
+
+    // Consumes one token (call only after confirming capacity >= 1)
+    const consumeToken = (tsMs) => {
+      if (DUMMY_IS_SLIDING) {
+        slidingLog.push(tsMs);
+      } else {
+        requestsInCurrentWindow++;
+      }
+    };
+
+    // Computes Retry-After in seconds for a 429 at tsMs
+    const getRetryAfterS = (tsMs) => {
+      if (DUMMY_IS_SLIDING) {
+        const cutoff = tsMs - DUMMY_WINDOW_S * 1000;
+        const oldest = slidingLog.find((t) => t >= cutoff);
+        if (oldest !== undefined) {
+          return Math.max(1, Math.ceil((oldest + DUMMY_WINDOW_S * 1000 - tsMs) / 1000));
+        }
+      }
+      return DUMMY_COOLDOWN_S;
+    };
+
+    // Computes x-ratelimit-reset unix timestamp
+    const getResetTs = (tsMs) => {
+      if (DUMMY_IS_SLIDING) {
+        const cutoff = tsMs - DUMMY_WINDOW_S * 1000;
+        const oldest = slidingLog.find((t) => t >= cutoff);
+        return oldest !== undefined
+          ? Math.floor((oldest + DUMMY_WINDOW_S * 1000) / 1000)
+          : Math.floor(tsMs / 1000) + DUMMY_WINDOW_S;
+      }
+      return Math.floor(windowStartMs / 1000) + DUMMY_WINDOW_S;
+    };
+
+    // Advances cursor past the cooldown period and resets window state
+    const jumpPastCooldown = (tsMs, retryAfterS) => {
+      cursor = tsMs + retryAfterS * 1000 + 500 + Math.floor(Math.random() * 1500);
+      if (DUMMY_IS_SLIDING) {
+        // Evict entries that have expired from the new cursor position
+        const cutoff = cursor - DUMMY_WINDOW_S * 1000;
+        while (slidingLog.length > 0 && slidingLog[0] < cutoff) slidingLog.shift();
+      } else {
+        windowStartMs = cursor;
+        requestsInCurrentWindow = 0;
+      }
+    };
+
+    // Builds a single result entry
+    const buildEntry = (tsMs, seq, is200, mockBody, method, route, randomId, retryAfterS, remaining, resetTs) => ({
+      seq,
+      timestamp: new Date(tsMs).toISOString(),
+      status: is200 ? 'ok' : 'rate_limited',
+      statusCode: is200 ? 200 : 429,
+      durationMs: is200 ? 20 + Math.floor(Math.random() * 180) : 5 + Math.floor(Math.random() * 15),
+      retryAfter: is200 ? null : String(retryAfterS),
+      request: {
+        url: `https://dummy.mock.local${route}?rid=${randomId}`,
+        method,
+        headers: { 'Content-Type': 'application/json', 'x-demo-client': 'dummy-api-demo' },
+        body:
+          method === 'GET'
+            ? null
+            : JSON.stringify({ sample: true, seq, rid: randomId, city: mockBody.location }),
+      },
+      response: {
+        status: is200 ? 200 : 429,
+        statusText: is200 ? 'OK' : 'Too Many Requests',
+        headers: is200
+          ? {
+              'x-ratelimit-limit': String(DUMMY_RPM_LIMIT),
+              'x-ratelimit-remaining': String(remaining),
+              'x-ratelimit-reset': String(resetTs),
+              'x-ratelimit-window': `${DUMMY_WINDOW_S}s`,
+              'content-type': 'application/json',
+            }
+          : {
+              'retry-after': String(retryAfterS),
+              'x-ratelimit-limit': String(DUMMY_RPM_LIMIT),
+              'x-ratelimit-remaining': '0',
+              'x-ratelimit-reset': String(resetTs),
+              'x-ratelimit-window': `${DUMMY_WINDOW_S}s`,
+              'content-type': 'application/json',
+            },
+        body: is200
+          ? JSON.stringify({
+              ...mockBody,
+              timestamp: new Date(tsMs).toISOString(),
+              requestId: `dummy-${seq}-${Math.random().toString(36).slice(2, 7)}`,
+              _source: 'dummy-mock',
+            })
+          : JSON.stringify({
+              error: 'Rate limit exceeded',
+              message: `Too many requests. Retry after ${retryAfterS}s.`,
+              retryAfter: retryAfterS,
+              limit: DUMMY_RPM_LIMIT,
+              window: `${DUMMY_WINDOW_S}s`,
+              windowModel: DUMMY_IS_SLIDING ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+              _source: 'dummy-mock',
+            }),
+      },
+      rateLimit: is200
+        ? null
+        : { detected: true, retryAfter: retryAfterS, window: DUMMY_WINDOW_S, limit: DUMMY_RPM_LIMIT },
+    });
+
+    // --- Main simulation loop ---
+
+    while (normalCount < totalRequests) {
+      // Fixed window: expire stale window at top of each tick
+      if (!DUMMY_IS_SLIDING && cursor - windowStartMs >= DUMMY_WINDOW_S * 1000) {
+        windowStartMs = cursor;
+        requestsInCurrentWindow = 0;
+      }
+
+      // Burst tick: BURST_SIZE concurrent requests at the same instant.
+      // Only trigger when there are enough remaining requests to fill a burst.
+      const isBurst = Math.random() < BURST_PROBABILITY && totalRequests - normalCount > BURST_SIZE;
+      const tickSize = isBurst ? BURST_SIZE : 1;
 
       const mockBody = MOCK_BODIES[Math.floor(Math.random() * MOCK_BODIES.length)];
       const method = DUMMY_METHODS[Math.floor(Math.random() * DUMMY_METHODS.length)];
       const route = DUMMY_ROUTES[Math.floor(Math.random() * DUMMY_ROUTES.length)];
-      const randomId = Math.floor(Math.random() * 5000) + 1;
-      const resetTs = Math.floor(cursor / 1000) + DUMMY_COOLDOWN_S;
 
-      if (statusCode === 200) {
-        remainingInWindow = Math.max(0, remainingInWindow - 1);
+      let hadRateLimit = false;
+      let lastRetryAfterS = DUMMY_COOLDOWN_S;
+
+      for (let b = 0; b < tickSize && normalCount < totalRequests; b++) {
+        // Burst requests share the same instant; tiny jitter (≤5ms) keeps them distinguishable
+        const tsMs = isBurst ? cursor + Math.floor(Math.random() * 5) : cursor;
+        const randomId = Math.floor(Math.random() * 5000) + 1;
+        const cap = getCapacity(tsMs);
+        seqCounter++;
+
+        if (cap <= 0) {
+          const retryAfterS = getRetryAfterS(tsMs);
+          const resetTs = getResetTs(tsMs);
+          simulatedResults.push(buildEntry(tsMs, seqCounter, false, mockBody, method, route, randomId, retryAfterS, 0, resetTs));
+          hadRateLimit = true;
+          lastRetryAfterS = retryAfterS;
+        } else {
+          consumeToken(tsMs);
+          normalCount++;
+          const remaining = getCapacity(tsMs); // post-consume remaining
+          const resetTs = getResetTs(tsMs);
+          simulatedResults.push(buildEntry(tsMs, seqCounter, true, mockBody, method, route, randomId, 0, remaining, resetTs));
+        }
       }
 
-      simulatedResults.push({
-        seq: i + 1,
-        timestamp: new Date(cursor).toISOString(),
-        status,
-        statusCode,
-        durationMs,
-        retryAfter: statusCode === 429 ? String(DUMMY_COOLDOWN_S) : null,
-        request: {
-          url: `https://dummy.mock.local${route}?rid=${randomId}`,
-          method,
-          headers: { 'Content-Type': 'application/json', 'x-demo-client': 'dummy-api-demo' },
-          body:
-            method === 'GET'
-              ? null
-              : JSON.stringify({
-                  sample: true,
-                  seq: i + 1,
-                  rid: randomId,
-                  city: mockBody.location,
-                }),
-        },
-        response: {
-          status: statusCode,
-          statusText: statusCode === 429 ? 'Too Many Requests' : 'OK',
-          headers:
-            statusCode === 429
-              ? {
-                  'retry-after': String(DUMMY_COOLDOWN_S),
-                  'x-ratelimit-limit': String(DUMMY_RPM_LIMIT),
-                  'x-ratelimit-remaining': '0',
-                  'x-ratelimit-reset': String(resetTs),
-                  'x-ratelimit-window': `${DUMMY_WINDOW_S}s`,
-                  'content-type': 'application/json',
-                }
-              : {
-                  'x-ratelimit-limit': String(DUMMY_RPM_LIMIT),
-                  'x-ratelimit-remaining': String(remainingInWindow),
-                  'x-ratelimit-window': `${DUMMY_WINDOW_S}s`,
-                  'content-type': 'application/json',
-                },
-          body:
-            statusCode === 429
-              ? JSON.stringify({
-                  error: 'Rate limit exceeded',
-                  message: `Too many requests. Retry after ${DUMMY_COOLDOWN_S}s.`,
-                  retryAfter: DUMMY_COOLDOWN_S,
-                  limit: DUMMY_RPM_LIMIT,
-                  window: `${DUMMY_WINDOW_S}s`,
-                  _source: 'dummy-mock',
-                })
-              : JSON.stringify({
-                  ...mockBody,
-                  timestamp: new Date(cursor).toISOString(),
-                  requestId: `dummy-${i + 1}-${Math.random().toString(36).slice(2, 7)}`,
-                  _source: 'dummy-mock',
-                }),
-        },
-        rateLimit:
-          statusCode === 429
-            ? {
-                detected: true,
-                retryAfter: DUMMY_COOLDOWN_S,
-                window: DUMMY_WINDOW_S,
-                limit: DUMMY_RPM_LIMIT,
-              }
-            : null,
-      });
+      if (hadRateLimit) {
+        jumpPastCooldown(cursor, lastRetryAfterS);
+        continue;
+      }
 
-      if (triggerRateLimit) {
-        cursor += 5 + Math.floor(Math.random() * 5);
-        remainingInWindow = DUMMY_RPM_LIMIT;
+      // Advance cursor for next tick
+      if (isBurst) {
+        // After a successful burst, pause before resuming normal traffic
+        cursor += 800 + Math.floor(Math.random() * 1200);
       } else {
-        cursor += 1 + Math.floor(Math.random() * 4);
+        // Organic single-request timing: 20% fast, 45% normal, 35% slow
+        const r = Math.random();
+        if (r < 0.2) {
+          cursor += 30 + Math.floor(Math.random() * 120);
+        } else if (r < 0.65) {
+          cursor += 150 + Math.floor(Math.random() * 450);
+        } else {
+          cursor += 600 + Math.floor(Math.random() * 1400);
+        }
       }
     }
 
-    startProgressiveSimulation(simulatedResults, 'dummy', { instant: true });
+    startProgressiveSimulation(simulatedResults, 'dummy', { organicPlayback: true });
   };
 
   const executeDefaultConfigTest = async (config) => {
@@ -699,6 +923,21 @@ export default function ApiDashboardView({ template }) {
       }
     }
 
+    const derivedRateMax = Number(apiLimits?.rateMax || apiLimits?.quotaMax || 0);
+    const derivedWindowSeconds = Number(apiLimits?.windowSeconds || 0);
+    const derivedCooldownSeconds = Number(apiLimits?.cooldownSeconds || 0);
+    const rateControl =
+      derivedRateMax > 0 && derivedWindowSeconds > 0
+        ? {
+            rateMax: Math.max(1, Math.floor(derivedRateMax)),
+            windowModel:
+              apiLimits?.windowModel === 'SLIDING_WINDOW' ? 'SLIDING_WINDOW' : 'FIXED_WINDOW',
+            windowSeconds: Math.max(1, Math.floor(derivedWindowSeconds)),
+            cooldownSeconds:
+              derivedCooldownSeconds > 0 ? Math.max(1, Math.floor(derivedCooldownSeconds)) : 15,
+          }
+        : null;
+
     const payload = {
       endpoint,
       request: {
@@ -709,6 +948,13 @@ export default function ApiDashboardView({ template }) {
       clients: Math.max(1, parseInt(config?.clients || 1, 10)),
       totalRequests: Math.max(1, parseInt(config?.totalRequests || 1, 10)),
       timeoutMs: Math.max(1000, parseInt(config?.timeoutMs || 5000, 10)),
+      pacing: {
+        meanMs: Math.max(20, Number(config?.intervalMs) || 220),
+        stdDevMs: Math.max(10, Math.round((Math.max(20, Number(config?.intervalMs) || 220)) * 0.35)),
+        minMs: 15,
+        maxMs: Math.max(120, Math.round((Math.max(20, Number(config?.intervalMs) || 220)) * 5)),
+      },
+      rateControl,
       dummyMode: Boolean(isDummyTemplate),
       dummyConfig: isDummyTemplate
         ? {
@@ -1349,6 +1595,8 @@ export default function ApiDashboardView({ template }) {
         windowSeconds: 60,
         cooldownSeconds: 45,
         totalRequests: 180,
+        burstSize: 30,
+        burstProbability: 30,
       });
       return;
     }
@@ -1361,6 +1609,8 @@ export default function ApiDashboardView({ template }) {
         windowSeconds: 60,
         cooldownSeconds: 20,
         totalRequests: 60,
+        burstSize: 10,
+        burstProbability: 5,
       });
       return;
     }
@@ -1914,7 +2164,7 @@ export default function ApiDashboardView({ template }) {
                   type="checkbox"
                   checked={advancedView}
                   onChange={(e) => setAdvancedView(e.target.checked)}
-                  className="w-4 h-4 rounded"
+                  className="form-input-checkbox"
                 />
                 <span className="text-xs font-semibold text-slate-400">Vista avanzada</span>
               </label>

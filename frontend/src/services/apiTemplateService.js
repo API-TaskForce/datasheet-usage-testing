@@ -71,6 +71,32 @@ export async function deleteTemplate(id) {
   await instance.delete(`/templates/${id}`);
 }
 
+// =============== API COLLECTIONS ===============
+
+export async function getCollections() {
+  const response = await instance.get('/collections');
+  return response.data.data;
+}
+
+export async function getCollection(id) {
+  const response = await instance.get(`/collections/${id}`);
+  return response.data;
+}
+
+export async function createCollection(collectionData) {
+  const response = await instance.post('/collections', collectionData);
+  return response.data;
+}
+
+export async function updateCollection(id, collectionData) {
+  const response = await instance.put(`/collections/${id}`, collectionData);
+  return response.data;
+}
+
+export async function deleteCollection(id) {
+  await instance.delete(`/collections/${id}`);
+}
+
 /**
  * Execute test with logging to database
  * Creates a job and polls for completion, saves all results to DB

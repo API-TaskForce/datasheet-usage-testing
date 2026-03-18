@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import Tooltip from './Tooltip.jsx'
 
 export default function AuthBadge({ authMethod, authCredential, compact = false }) {
   const [visible, setVisible] = useState(false)
@@ -30,15 +31,16 @@ export default function AuthBadge({ authMethod, authCredential, compact = false 
     <div className={`flex items-center gap-2 ${compact ? '' : ''}`}>
       {!compact && <p className="badge badge-info">{authMethod}</p>}
 
-      <button
-        type="button"
-        onClick={() => setVisible((v) => !v)}
-        className="p-1 rounded hover:bg-gray-100 focus:outline-none"
-        aria-pressed={visible}
-        title={visible ? 'Hide credential' : 'Show credential'}
-      >
-        {visible ? EyeClosed : EyeOpen}
-      </button>
+      <Tooltip text={visible ? 'Ocultar credencial' : 'Mostrar credencial'} placement="bottom">
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="p-1 rounded hover:bg-gray-100 focus:outline-none"
+          aria-pressed={visible}
+        >
+          {visible ? EyeClosed : EyeOpen}
+        </button>
+      </Tooltip>
 
       {visible && (
         <code className="text-sm text-gray-700 bg-gray-100 px-2 py-0.5 rounded">

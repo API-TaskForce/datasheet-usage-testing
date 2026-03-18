@@ -1,4 +1,5 @@
 import React from 'react'
+import Tooltip from './Tooltip.jsx'
 
 export default function BaseButton({
   variant = 'primary',
@@ -6,6 +7,9 @@ export default function BaseButton({
   disabled = false,
   children,
   className = '',
+  tooltip = '',
+  tooltipPlacement = 'top',
+  tooltipShowDelay = 220,
   ...rest
 }) {
   const variantClass = {
@@ -26,12 +30,14 @@ export default function BaseButton({
   }[size] || 'px-4 py-2 text-base'
 
   return (
-    <button
-      className={`btn ${variantClass} ${sizeClass} ${className}`}
-      disabled={disabled}
-      {...rest}
-    >
-      {children}
-    </button>
+    <Tooltip text={tooltip} placement={tooltipPlacement} showDelay={tooltipShowDelay}>
+      <button
+        className={`btn ${variantClass} ${sizeClass} ${className}`}
+        disabled={disabled}
+        {...rest}
+      >
+        {children}
+      </button>
+    </Tooltip>
   )
 }
