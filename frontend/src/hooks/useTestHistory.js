@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 
 const STORAGE_KEY = 'test-history-data';
+const STORAGE_SCHEMA_KEY = 'test-history-schema-version';
+const STORAGE_SCHEMA_VERSION = 'showcase-window-v1';
 const MAX_STORED_TESTS = 100;
-const MAX_RESULTS_PER_TEST = 5000;
+const MAX_RESULTS_PER_TEST = 12000;
 
 function sanitizeResultForStorage(result) {
   if (!result || typeof result !== 'object') return null;
@@ -34,12 +36,49 @@ function sanitizeResultForStorage(result) {
  * - Maximum 100 tests per template
  * - Aggregation by time granularity
  */
-export function useTestHistory(templateId) {
+export function useTestHistory(templateId, options = {}) {
+  const persistent = options?.persistent !== false;
   const [history, setHistory] = useState([]);
   const [storageReady, setStorageReady] = useState(false);
 
+  // One-time schema migration to purge stale cached history that can break chart rendering.
+  useEffect(() => {
+    if (!persistent) {
+      setStorageReady(true);
+      return;
+    }
+
+    try {
+      const currentSchema = localStorage.getItem(STORAGE_SCHEMA_KEY);
+      if (currentSchema === STORAGE_SCHEMA_VERSION) return;
+
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(`${STORAGE_KEY}-`)) {
+          keysToRemove.push(key);
+        }
+      }
+
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
+      localStorage.setItem(STORAGE_SCHEMA_KEY, STORAGE_SCHEMA_VERSION);
+      console.log('[useTestHistory] Storage schema migrated and stale history cleared:', {
+        removed: keysToRemove.length,
+        schema: STORAGE_SCHEMA_VERSION,
+      });
+    } catch (error) {
+      console.error('[useTestHistory] Failed running storage migration:', error);
+    }
+  }, [persistent]);
+
   // Load history from localStorage on mount and when templateId changes
   useEffect(() => {
+    if (!persistent) {
+      setHistory([]);
+      setStorageReady(true);
+      return;
+    }
+
     const loadHistory = () => {
       if (!templateId) {
         setHistory([]);
@@ -69,10 +108,11 @@ export function useTestHistory(templateId) {
     };
 
     loadHistory();
-  }, [templateId]);
+  }, [templateId, persistent]);
 
   // Save history to localStorage whenever it changes
   useEffect(() => {
+    if (!persistent) return;
     if (!storageReady || !templateId) return;
 
     try {
@@ -91,10 +131,12 @@ export function useTestHistory(templateId) {
         setHistory((prev) => prev.slice(0, prev.length - 1));
       }
     }
-  }, [history, templateId, storageReady]);
+  }, [history, templateId, storageReady, persistent]);
 
   // Sync across tabs via storage events
   useEffect(() => {
+    if (!persistent) return undefined;
+
     const handleStorageChange = (e) => {
       if (e.key === `${STORAGE_KEY}-${templateId}` && e.newValue) {
         try {
@@ -112,13 +154,9 @@ export function useTestHistory(templateId) {
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [templateId]);
+  }, [templateId, persistent]);
 
-  /**
-   * Add a new test result to history
-   * @param {object} testData - { jobId, timestamp, results, summary }
-   */
-  const addTestResult = useCallback((testData) => {
+  const buildStoredTestEntry = useCallback((testData) => {
     const compactResults = Array.isArray(testData?.results)
       ? testData.results
           .slice(0, MAX_RESULTS_PER_TEST)
@@ -126,28 +164,80 @@ export function useTestHistory(templateId) {
           .filter(Boolean)
       : [];
 
+    return {
+      jobId: testData?.jobId,
+      timestamp: testData?.timestamp,
+      summary: testData?.summary || {},
+      results: compactResults,
+      source: testData?.source || 'default',
+      simulated: Boolean(testData?.simulated),
+      showcaseWindowSeconds: Number(testData?.showcaseWindowSeconds || 0),
+      storedAt: new Date().toISOString(),
+    };
+  }, []);
+
+  const entryOverlapsWindow = useCallback((entry, windowStartMs, windowEndMs) => {
+    if (!entry) return false;
+
+    const timestamps = Array.isArray(entry.results)
+      ? entry.results
+          .map((r) => new Date(r?.timestamp || 0).getTime())
+          .filter((ts) => Number.isFinite(ts) && ts > 0)
+      : [];
+
+    if (timestamps.length === 0) {
+      const fallbackTs = new Date(entry.timestamp || 0).getTime();
+      if (!Number.isFinite(fallbackTs)) return false;
+      return fallbackTs >= windowStartMs && fallbackTs <= windowEndMs;
+    }
+
+    const minTs = Math.min(...timestamps);
+    const maxTs = Math.max(...timestamps);
+    return maxTs >= windowStartMs && minTs <= windowEndMs;
+  }, []);
+
+  /**
+   * Add a new test result to history
+   * @param {object} testData - { jobId, timestamp, results, summary }
+   */
+  const addTestResult = useCallback((testData) => {
     setHistory((prev) => {
-      const updated = [
-        {
-          jobId: testData?.jobId,
-          timestamp: testData?.timestamp,
-          summary: testData?.summary || {},
-          results: compactResults,
-          storedAt: new Date().toISOString(),
-        },
-        ...prev,
-      ].slice(0, MAX_STORED_TESTS); // Keep only last 100 tests
+      const updated = [buildStoredTestEntry(testData), ...prev].slice(0, MAX_STORED_TESTS);
       return updated;
     });
-  }, []);
+  }, [buildStoredTestEntry]);
+
+  /**
+   * Replace simulated data inside a window and insert a new showcase test
+   * @param {object} testData - Test data to insert
+   * @param {number} windowStartMs - Window start timestamp in ms
+   * @param {number} windowEndMs - Window end timestamp in ms
+   */
+  const replaceSimulatedResultsInWindow = useCallback(
+    (testData, windowStartMs, windowEndMs) => {
+      setHistory((prev) => {
+        const filtered = prev.filter((entry) => {
+          const isSimulated = Boolean(entry?.simulated || entry?.source === 'showcase');
+          if (!isSimulated) return true;
+          return !entryOverlapsWindow(entry, windowStartMs, windowEndMs);
+        });
+
+        const updated = [buildStoredTestEntry(testData), ...filtered].slice(0, MAX_STORED_TESTS);
+        return updated;
+      });
+    },
+    [buildStoredTestEntry, entryOverlapsWindow]
+  );
 
   /**
    * Clear all history
    */
   const clearHistory = useCallback(() => {
     setHistory([]);
-    localStorage.removeItem(`${STORAGE_KEY}-${templateId}`);
-  }, [templateId]);
+    if (persistent) {
+      localStorage.removeItem(`${STORAGE_KEY}-${templateId}`);
+    }
+  }, [templateId, persistent]);
 
   /**
    * Get all results across all tests with timestamp enrichment
@@ -298,6 +388,7 @@ export function useTestHistory(templateId) {
     history,
     storageReady,
     addTestResult,
+    replaceSimulatedResultsInWindow,
     clearHistory,
     getAllResults,
     aggregateByGranularity,

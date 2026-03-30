@@ -17,6 +17,7 @@ export default function UPlotChart({ options, data }) {
   const uPlotInstance = useRef(null);
   const resizeObserverRef = useRef(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const updateTimerRef = useRef(null);
 
   const computeSmartRanges = (nextData) => {
     if (!Array.isArray(nextData) || !Array.isArray(nextData[0]) || nextData[0].length === 0) {
@@ -189,6 +190,11 @@ export default function UPlotChart({ options, data }) {
 
   useEffect(() => {
     return () => {
+      if (updateTimerRef.current) {
+        clearTimeout(updateTimerRef.current);
+        updateTimerRef.current = null;
+      }
+
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
@@ -242,18 +248,23 @@ export default function UPlotChart({ options, data }) {
     }
 
     try {
-      // Smooth update with subtle fade effect
       setIsUpdating(true);
-      setTimeout(() => {
-        if (uPlotInstance.current) {
-          uPlotInstance.current.setData(data);
 
-          if (Array.isArray(data[0]) && data[0].length > 0) {
-            applyAutoViewport(uPlotInstance.current, data);
-          }
+      // Cancel any pending update so old payloads never overwrite fresh data.
+      if (updateTimerRef.current) {
+        clearTimeout(updateTimerRef.current);
+        updateTimerRef.current = null;
+      }
+
+      if (uPlotInstance.current) {
+        uPlotInstance.current.setData(data);
+
+        if (Array.isArray(data[0]) && data[0].length > 0) {
+          applyAutoViewport(uPlotInstance.current, data);
         }
-        setIsUpdating(false);
-      }, 50); // Small delay for smooth transition
+      }
+
+      setIsUpdating(false);
     } catch (error) {
       console.error('[UPlotChart] Error updating data:', error);
       setIsUpdating(false);

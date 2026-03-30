@@ -112,54 +112,6 @@ export default function TemplatesPage({ onSelectTemplate }) {
         {loading && <p className="text-lg p-6">Cargando tus APIs...</p>}
         {error && <div className="alert alert-error m-6">Error: {error}</div>}
 
-        {!loading && (
-          <div className="mb-4 p-3 border border-border rounded-lg bg-primary">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <p className="text-sm font-semibold text-text">Colecciones</p>
-              <button
-                type="button"
-                onClick={handleCreateCollection}
-                className="badge badge-info cursor-pointer"
-              >
-                + Nueva colección
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <button
-                type="button"
-                onClick={() => setSelectedCollectionId('all')}
-                className={`badge cursor-pointer ${selectedCollectionId === 'all' ? 'badge-success' : 'badge-secondary'}`}
-              >
-                Todas ({templates.length})
-              </button>
-              {collections.map((col) => {
-                const count = templates.filter((t) => t.collectionId === col.id).length;
-                return (
-                  <div key={col.id} className="flex items-center gap-1">
-                    <Tooltip text={col.description || col.name}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCollectionId(col.id)}
-                        className={`badge cursor-pointer ${selectedCollectionId === col.id ? 'badge-success' : 'badge-secondary'}`}
-                      >
-                        {col.name} ({count})
-                      </button>
-                    </Tooltip>
-                    <Tooltip text="Eliminar colección" placement="bottom">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCollection(col)}
-                        className="badge badge-warning cursor-pointer"
-                      >
-                        x
-                      </button>
-                    </Tooltip>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         <TemplateList
           templates={filteredTemplates}

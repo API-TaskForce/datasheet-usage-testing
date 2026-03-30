@@ -5,7 +5,7 @@ import BaseButton from './BaseButton.jsx';
 import ApiTemplateActionsMenu from './ApiTemplateActionsMenu.jsx';
 import Tooltip from './Tooltip.jsx';
 import { TestTube2, Settings2 } from 'lucide-react';
-import { buildTemplateCoverUrl } from '../utils/templateCover.js';
+import { buildTemplateCoverCandidates } from '../utils/templateCover.js';
 
 export default function ApiTemplateCard({
   template,
@@ -18,22 +18,27 @@ export default function ApiTemplateCard({
   onManageConfigs,
   onEdit,
   onDelete,
-  dashboardLabel = 'Panel',
+  dashboardLabel = 'Dashboard',
   testsLabel = 'Tests',
   footer = null,
   showAuthBadge = false,
   className = '',
 }) {
   const [coverFailed, setCoverFailed] = useState(false);
-  const resolvedCoverUrl = useMemo(() => {
+  const [coverAttempt, setCoverAttempt] = useState(0);
+
+  const coverCandidates = useMemo(() => {
     if (coverUrl === null) return null;
-    if (typeof coverUrl === 'string') return coverUrl;
-    return buildTemplateCoverUrl(template);
+    if (typeof coverUrl === 'string') return [coverUrl];
+    return buildTemplateCoverCandidates(template);
   }, [coverUrl, template]);
+
+  const resolvedCoverUrl = coverCandidates?.[coverAttempt] || null;
 
   useEffect(() => {
     setCoverFailed(false);
-  }, [template?.id, resolvedCoverUrl]);
+    setCoverAttempt(0);
+  }, [template?.id, coverUrl]);
 
   const shouldShowImage = Boolean(showCover && resolvedCoverUrl && !coverFailed);
   const showActionMenu = typeof onEdit === 'function' || typeof onDelete === 'function';
@@ -50,6 +55,11 @@ export default function ApiTemplateCard({
                 className="w-8 h-8 object-contain"
                 loading="lazy"
                 onError={() => {
+                  if (coverCandidates && coverAttempt < coverCandidates.length - 1) {
+                    setCoverAttempt((prev) => prev + 1);
+                    return;
+                  }
+
                   setCoverFailed(true);
                   if (typeof onCoverError === 'function') {
                     onCoverError();
@@ -64,30 +74,22 @@ export default function ApiTemplateCard({
             <h4 className="text-lg font-bold text-md leading-tight">{template?.name}</h4>
           </div>
 
-          <div className="flex items-center gap-2"></div>
-        </div>
-      )}
-
-      <div className="flex flex-col p-2 justify-between h-full gap-4">
-        <div className="flex flex-row items-center gap-2 w-full">
-          <Tooltip text={template?.apiUri || ''}>
-            <p className="text-xs text-muted truncate w-1/2">{template?.apiUri}</p>
-          </Tooltip>
-          <div className="flex items-center gap-2 w-full">
+          <div className="flex items-center gap-2">
             {showAuthBadge && (
               <AuthBadge
                 authMethod={template?.authMethod}
                 authCredential={template?.authCredential}
               />
             )}
-            {collectionName && (
-              <Tooltip text="Colección" placement="bottom">
-                <span className="badge badge-secondary">
-                  {collectionName}
-                </span>
-              </Tooltip>
-            )}
           </div>
+        </div>
+      )}
+
+      <div className="flex flex-col p-2 justify-between h-full gap-4">
+        <div className="flex flex-row items-center gap-2 w-full">
+          <Tooltip text={template?.apiUri || ''}>
+            <p className="text-xs text-muted">{template?.apiUri}</p>
+          </Tooltip>
         </div>
 
         {(typeof onDashboard === 'function' ||
@@ -105,7 +107,7 @@ export default function ApiTemplateCard({
               </BaseButton>
             )}
 
-            {typeof onManageConfigs === 'function' && (
+            {/*typeof onManageConfigs === 'function' && (
               <BaseButton
                 size="sm"
                 variant="primary"
@@ -114,7 +116,7 @@ export default function ApiTemplateCard({
               >
                 <Settings2 size={16} /> {testsLabel}
               </BaseButton>
-            )}
+            )*/}
 
             {showActionMenu && (
               <div className="ml-auto">

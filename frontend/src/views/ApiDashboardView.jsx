@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import TemplateTestView from '../components/TemplateTestView.jsx';
 import TemplateForm from '../components/TemplateForm.jsx';
 import DatasheetViewer from '../components/DatasheetViewer.jsx';
-import StorageInfoPanel from '../components/StorageInfoPanel.jsx';
 import ApiDashboardActionBar from '../components/dashboard/ApiDashboardActionBar.jsx';
 import ApiDashboardTabs from '../components/dashboard/ApiDashboardTabs.jsx';
 import { RealTimePanel, SimpleRealTimePanel } from '../components/dashboard/RealtimePanels.jsx';
@@ -23,6 +22,7 @@ import {
   updateTemplate as updateTemplateRecord,
 } from '../services/apiTemplateService.js';
 import { useTestHistory } from '../hooks/useTestHistory.js';
+import { SHOWCASE_SCENARIOS, MOCK_PROFILES } from '../hooks/useMockDataInjection.js';
 import { useToast } from '../stores/toastStore.jsx';
 import {
   Activity,
@@ -34,6 +34,8 @@ import {
   FileText,
   X,
   CheckCircle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import BaseButton from '../components/BaseButton.jsx';
 import BaseCard from '../components/BaseCard.jsx';
@@ -122,15 +124,19 @@ function pickDefaultTestConfig(configs) {
 
 function buildCooldownSpans(results, fallbackCooldownSeconds, windowModel) {
   if (!Array.isArray(results) || results.length === 0) return [];
+  if (windowModel !== 'SLIDING_WINDOW') return [];
 
   return results
-    .filter((r) => (r.statusCode >= 400 && r.statusCode < 500) || r.status === 'rate_limited')
+    .filter(
+      (r) =>
+        !r?.skipCooldownSpan &&
+        ((r.statusCode >= 400 && r.statusCode < 500) || r.status === 'rate_limited')
+    )
     .map((r) => {
       const start = Math.floor(new Date(r.timestamp).getTime() / 1000);
       const retryAfter = Number(r?.rateLimit?.retryAfter || r?.retryAfter || 0);
       const rawCooldown = retryAfter > 0 ? retryAfter : fallbackCooldownSeconds;
-      const cooldownSeconds =
-        windowModel === 'SLIDING_WINDOW' ? Math.max(1, Math.floor(rawCooldown * 0.7)) : rawCooldown;
+      const cooldownSeconds = Math.max(1, Math.floor(rawCooldown));
 
       return {
         start,
@@ -150,6 +156,39 @@ const DEFAULT_DUMMY_CONTROL = {
   totalRequests: 80,
   burstSize: 20,
   burstProbability: 15,
+};
+
+const SIMULATION_ONLY_MODE = true;
+
+const SHOWCASE_WINDOW_OPTIONS = [
+  { value: '5m', label: '5m' },
+  { value: '10m', label: '10m' },
+  { value: '15m', label: '15m' },
+  { value: '30m', label: '30m' },
+  { value: '1h', label: '1h' },
+];
+
+const SHOWCASE_PROFILE_OPTIONS = [
+  { value: 'good', label: 'Buena reputacion' },
+  { value: 'cautious', label: 'Conservador' },
+  { value: 'bursty', label: 'Por rafagas' },
+  { value: 'quota', label: 'Consumo intensivo' },
+  { value: 'bad', label: 'Mala reputacion' },
+];
+
+const GOOD_REPUTATION_PROFILES = new Set(['good', 'cautious']);
+
+const parseWindowScaleToSeconds = (scale) => {
+  const map = {
+    '5m': 5 * 60,
+    '10m': 10 * 60,
+    '15m': 15 * 60,
+    '30m': 30 * 60,
+    '1h': 60 * 60,
+    '6h': 6 * 60 * 60,
+    '24h': 24 * 60 * 60,
+  };
+  return map[scale] || 10 * 60;
 };
 
 const clampInt = (value, min, fallback) => {
@@ -197,13 +236,15 @@ export default function ApiDashboardView({ template }) {
   const [running, setRunning] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [testMode, setTestMode] = useState('real');
+  const [testMode, setTestMode] = useState('simulated');
   const [datasheet, setDatasheet] = useState(null);
   const [loadingDatasheet, setLoadingDatasheet] = useState(true);
   const [showDatasheet, setShowDatasheet] = useState(false);
   const [activeTab, setActiveTab] = useState('charts');
   const [capacityViewInterval, setCapacityViewInterval] = useState('auto');
   const [trafficTimeScale, setTrafficTimeScale] = useState('1h');
+  const [showcaseWindow, setShowcaseWindow] = useState('10m');
+  const [selectedShowcaseScenario, setSelectedShowcaseScenario] = useState('good');
   const [defaultTestConfig, setDefaultTestConfig] = useState(null);
   const [loadingDefaultConfig, setLoadingDefaultConfig] = useState(false);
   const [advancedView, setAdvancedView] = useState(false);
@@ -215,11 +256,6 @@ export default function ApiDashboardView({ template }) {
   // Safe mode: auto-regulates requests to avoid hitting rate limits
   const [safeModeEnabled, setSafeModeEnabled] = useState(false);
 
-  // Cooldown tracking
-  const [cooldownTimeRemaining, setCooldownTimeRemaining] = useState(0);
-  const [activeCooldownEnd, setActiveCooldownEnd] = useState(null);
-  const cooldownTimerInterval = useRef(null);
-
   // Auto-refresh states
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(60);
@@ -227,11 +263,8 @@ export default function ApiDashboardView({ template }) {
 
   // Test history management
   const toast = useToast();
-  const lastAlertedCountRef = useRef(0);
-  const alertedResultKeysRef = useRef(new Set());
-  const { history, addTestResult, clearHistory, getCurrentStats } = useTestHistory(
-    template?.id || 'default'
-  );
+  const { history, storageReady, addTestResult, replaceSimulatedResultsInWindow, getCurrentStats } =
+    useTestHistory(template?.id || 'default', { persistent: false });
 
   // Real-time metrics from current test
   const [liveResults, setLiveResults] = useState([]);
@@ -252,57 +285,11 @@ export default function ApiDashboardView({ template }) {
   });
 
   const pollInterval = useRef(null);
+  const seededTemplateIdsRef = useRef(new Set());
   const isDummyTemplate = Boolean(
     template?.isDummy || resolvedIsDummy || template?.dummyConfig || resolvedDummyConfig
   );
   const persistedDummyConfig = resolvedDummyConfig || template?.dummyConfig || null;
-
-  const buildResultAlertKey = useCallback((result, index = 0) => {
-    return [
-      result?.seq ?? index,
-      result?.timestamp ?? 'no-ts',
-      result?.statusCode ?? result?.status ?? 'no-status',
-      result?.request?.url ?? 'no-url',
-    ].join('|');
-  }, []);
-
-  const notifyRateLimitAnd4xx = useCallback(
-    (results) => {
-      if (!Array.isArray(results) || results.length === 0) return;
-
-      results.forEach((result, index) => {
-        const isRateLimited = result?.statusCode === 429 || result?.status === 'rate_limited';
-        const isClientError = Number(result?.statusCode) >= 400 && Number(result?.statusCode) < 500;
-
-        if (!isRateLimited && !isClientError) {
-          return;
-        }
-
-        const alertKey = buildResultAlertKey(result, index);
-        if (alertedResultKeysRef.current.has(alertKey)) {
-          return;
-        }
-        alertedResultKeysRef.current.add(alertKey);
-
-        const retryAfter = Number(result?.rateLimit?.retryAfter || result?.retryAfter || 0);
-        const endpoint = result?.request?.url ? ` · ${result.request.url}` : '';
-
-        if (isRateLimited) {
-          const cooldownDetail = retryAfter > 0 ? ` · Cooldown ${retryAfter}s` : '';
-          toast.warning(
-            `Peticiones limitadas (429)${cooldownDetail}${endpoint}`,
-            6500,
-            `rate-limit-429-${retryAfter > 0 ? retryAfter : 'na'}`
-          );
-          return;
-        }
-
-        const statusCode = result?.statusCode || '4XX';
-        toast.error(`Error cliente ${statusCode}${endpoint}`, 6500, `client-error-${statusCode}`);
-      });
-    },
-    [buildResultAlertKey, toast]
-  );
 
   const startProgressiveSimulation = useCallback(
     (results, jobPrefix, options = {}) => {
@@ -315,8 +302,6 @@ export default function ApiDashboardView({ template }) {
         pollInterval.current = null;
       }
 
-      lastAlertedCountRef.current = 0;
-      alertedResultKeysRef.current = new Set();
       setRunning(true);
       setActiveJobId(`${jobPrefix}-${Date.now()}`);
       setLiveResults([]);
@@ -326,18 +311,34 @@ export default function ApiDashboardView({ template }) {
       const instant = Boolean(options?.instant);
       const organicPlayback = Boolean(options?.organicPlayback);
 
+      const storeHistory = (finalResults, finalSummary) => {
+        const historyPayload = {
+          jobId: `${jobPrefix}-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          results: finalResults,
+          summary: finalSummary,
+          source: options?.source || 'simulated',
+          simulated: options?.simulated ?? true,
+          showcaseWindowSeconds: Number(options?.showcaseWindowSeconds || 0),
+        };
+
+        if (Number(options?.overwriteWindowSeconds) > 0) {
+          const windowEnd = Date.now();
+          const windowStart = windowEnd - Number(options.overwriteWindowSeconds) * 1000;
+          replaceSimulatedResultsInWindow(historyPayload, windowStart, windowEnd);
+          return;
+        }
+
+        addTestResult(historyPayload);
+      };
+
       if (instant) {
         processResults(results);
         const finalSummary = buildSummaryFromResults(results);
         setSummary(finalSummary);
         setLiveResults(results);
 
-        addTestResult({
-          jobId: `${jobPrefix}-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          results,
-          summary: finalSummary,
-        });
+        storeHistory(results, finalSummary);
 
         setRunning(false);
         return;
@@ -351,12 +352,7 @@ export default function ApiDashboardView({ template }) {
         setSummary(finalSummary);
         setLiveResults(results);
 
-        addTestResult({
-          jobId: `${jobPrefix}-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          results,
-          summary: finalSummary,
-        });
+        storeHistory(results, finalSummary);
 
         setRunning(false);
       };
@@ -398,7 +394,7 @@ export default function ApiDashboardView({ template }) {
         }
       }, 75);
     },
-    [addTestResult]
+    [addTestResult, replaceSimulatedResultsInWindow]
   );
 
   // Auto-refresh: toggle on/off
@@ -456,141 +452,300 @@ export default function ApiDashboardView({ template }) {
     return { total, ok, rateLimit, error, avgMs };
   };
 
-  const runSimulatedTest = (config) => {
-    const totalRequests = Math.max(1, parseInt(config?.totalRequests || 80, 10));
-    const now = Date.now();
-    const cooldownBase = apiLimits.cooldownSeconds || 30;
-    const limitPerWindow = Math.max(1, parseInt(apiLimits?.rateMax || 60, 10));
-    const isSlidingWindow = apiLimits.windowModel === 'SLIDING_WINDOW';
-    const pacing = buildUserLikePacing(Number(config?.intervalMs) || 240);
+  const buildOrganicMockResults = useCallback(
+    (config, profile = 'baseline', options = {}) => {
+      const totalRequests = Math.max(1, parseInt(config?.totalRequests || 80, 10));
+      const now = Date.now();
+      const showcaseWindowSeconds = Math.max(0, Number(options?.showcaseWindowSeconds || 0));
+      const isTimeboxedShowcase = showcaseWindowSeconds > 0;
 
-    // Start in the past so points appear on chart history, including occasional cooldown events.
-    const estimatedTotalMs = totalRequests * 550 + cooldownBase * 1000 * 2 + 6000;
-    let cursor = now - estimatedTotalMs;
+      const cooldownBase = Math.max(1, Number(apiLimits?.cooldownSeconds || 30));
+      const limitPerWindow = Math.max(1, parseInt(apiLimits?.rateMax || 60, 10));
+      const windowSeconds = Math.max(1, parseInt(apiLimits?.windowSeconds || 60, 10));
+      const isSlidingWindow = apiLimits?.windowModel === 'SLIDING_WINDOW';
+      const skipCooldownOn4xx =
+        isSlidingWindow && GOOD_REPUTATION_PROFILES.has(String(profile || '').toLowerCase());
+      const quotaMaxRaw = Number(apiLimits?.quotaMax || 0);
+      const hasQuota = Number.isFinite(quotaMaxRaw) && quotaMaxRaw > 0;
+      const quotaMax = hasQuota ? Math.max(1, Math.floor(quotaMaxRaw)) : Number.MAX_SAFE_INTEGER;
+      const pacing = buildUserLikePacing(Number(config?.intervalMs) || 230);
 
-    const windowSeconds = Math.max(1, parseInt(apiLimits?.windowSeconds || 60, 10));
-    let windowStartMs = cursor;
-    let requestsInWindow = 0;
-    const slidingAccepted = [];
+      const selectedProfile = MOCK_PROFILES[profile] || MOCK_PROFILES.baseline;
 
-    const availableCapacity = (tsMs) => {
-      if (isSlidingWindow) {
-        const cutoff = tsMs - windowSeconds * 1000;
-        while (slidingAccepted.length > 0 && slidingAccepted[0] < cutoff) {
-          slidingAccepted.shift();
-        }
-        return Math.max(0, limitPerWindow - slidingAccepted.length);
-      }
+      const estimatedTotalMs = totalRequests * 420 + cooldownBase * 1000 * 2 + 6000;
+      const showcaseWindowMs = showcaseWindowSeconds * 1000;
+      const timelineStart = isTimeboxedShowcase ? now - showcaseWindowMs : now - estimatedTotalMs;
+      const timelineEnd = isTimeboxedShowcase ? now : Number.MAX_SAFE_INTEGER;
+      const maxResultsByWindow = isTimeboxedShowcase
+        ? Math.max(
+            totalRequests,
+            Math.ceil((limitPerWindow / Math.max(1, windowSeconds)) * showcaseWindowSeconds * 2.1)
+          )
+        : totalRequests;
+      let cursor = timelineStart;
 
-      if (tsMs - windowStartMs >= windowSeconds * 1000) {
-        windowStartMs = tsMs;
-        requestsInWindow = 0;
-      }
-      return Math.max(0, limitPerWindow - requestsInWindow);
-    };
+      let windowStartMs = cursor;
+      let requestsInWindow = 0;
+      const slidingAccepted = [];
+      const results = [];
+      let quotaConsumed = 0;
 
-    const consumeCapacity = (tsMs) => {
-      if (isSlidingWindow) {
-        slidingAccepted.push(tsMs);
-      } else {
-        requestsInWindow += 1;
-      }
-    };
-
-    const computeRetryAfter = (tsMs) => {
-      if (!isSlidingWindow) return cooldownBase;
-      if (slidingAccepted.length === 0) return cooldownBase;
-      const oldest = slidingAccepted[0];
-      return Math.max(1, Math.ceil((oldest + windowSeconds * 1000 - tsMs) / 1000));
-    };
-
-    const simulatedResults = [];
-
-    let successfulRequests = 0;
-    let seq = 0;
-
-    while (successfulRequests < totalRequests) {
-      // Organic shape: occasional burst tick with many requests in the same instant.
-      const burstTick = Math.random() < 0.18;
-      const tickRequests = burstTick ? 8 + Math.floor(Math.random() * 13) : 1;
-
-      for (let j = 0; j < tickRequests && successfulRequests < totalRequests; j++) {
-        const jitterMs = burstTick ? Math.floor(Math.random() * 4) : 0;
-        const tsMs = cursor + jitterMs;
-        const cap = availableCapacity(tsMs);
-        const statusCode = cap > 0 ? 200 : 429;
-        const status = statusCode === 429 ? 'rate_limited' : 'ok';
-        const retryAfter = statusCode === 429 ? computeRetryAfter(tsMs) : null;
-
-        if (statusCode === 200) {
-          consumeCapacity(tsMs);
-          successfulRequests += 1;
+      const availableCapacity = (tsMs) => {
+        if (isSlidingWindow) {
+          const cutoff = tsMs - windowSeconds * 1000;
+          while (slidingAccepted.length > 0 && slidingAccepted[0] < cutoff) {
+            slidingAccepted.shift();
+          }
+          return Math.max(0, limitPerWindow - slidingAccepted.length);
         }
 
-        seq += 1;
-        simulatedResults.push({
-          seq,
-          timestamp: new Date(tsMs).toISOString(),
-          status,
-          statusCode,
-          durationMs:
-            statusCode === 200
-              ? 80 + Math.floor(Math.random() * 220)
-              : 25 + Math.floor(Math.random() * 70),
-          retryAfter: retryAfter != null ? String(retryAfter) : null,
-          request: {
-            url: buildEndpointFromConfig(config),
-            method: config?.method || template?.requestMethod || 'GET',
-            headers: buildHeadersFromTemplate(),
-            body: config?.body || null,
-          },
-          response: {
-            status: statusCode,
-            statusText: statusCode === 429 ? 'Too Many Requests' : 'OK',
-            headers:
+        if (tsMs - windowStartMs >= windowSeconds * 1000) {
+          windowStartMs = tsMs;
+          requestsInWindow = 0;
+        }
+        return Math.max(0, limitPerWindow - requestsInWindow);
+      };
+
+      const consumeCapacity = (tsMs) => {
+        if (isSlidingWindow) {
+          slidingAccepted.push(tsMs);
+        } else {
+          requestsInWindow += 1;
+        }
+      };
+
+      const computeRetryAfter = (tsMs) => {
+        if (!isSlidingWindow) return cooldownBase;
+        if (slidingAccepted.length === 0) return cooldownBase;
+        const oldest = slidingAccepted[0];
+        return Math.max(1, Math.ceil((oldest + windowSeconds * 1000 - tsMs) / 1000));
+      };
+
+      let seq = 0;
+      while (results.length < maxResultsByWindow && cursor <= timelineEnd) {
+        const burstTick = Math.random() < selectedProfile.burstChance;
+        const tickRequests = burstTick
+          ? selectedProfile.burstMin +
+            Math.floor(
+              Math.random() * Math.max(1, selectedProfile.burstMax - selectedProfile.burstMin + 1)
+            )
+          : 1;
+
+        for (let j = 0; j < tickRequests && results.length < maxResultsByWindow; j++) {
+          const jitterMs = burstTick ? Math.floor(Math.random() * 5) : 0;
+          const tsMs = cursor + jitterMs;
+          if (tsMs > timelineEnd) break;
+
+          const cap = availableCapacity(tsMs);
+          const endpoint = buildEndpointFromConfig(config);
+          const method = config?.method || template?.requestMethod || 'GET';
+
+          let statusCode = 200;
+          let status = 'ok';
+          let retryAfter = null;
+
+          if (quotaConsumed >= quotaMax) {
+            statusCode = 403;
+            status = 'error';
+            retryAfter = cooldownBase;
+          } else if (cap <= 0) {
+            statusCode = 429;
+            status = 'rate_limited';
+            retryAfter = computeRetryAfter(tsMs);
+          } else if (Math.random() < selectedProfile.clientErrorChance) {
+            const errors = [400, 401, 403, 404];
+            statusCode = errors[Math.floor(Math.random() * errors.length)];
+            status = 'error';
+            retryAfter = skipCooldownOn4xx ? null : cooldownBase;
+          } else {
+            consumeCapacity(tsMs);
+            quotaConsumed += 1;
+          }
+
+          seq += 1;
+          results.push({
+            seq,
+            timestamp: new Date(tsMs).toISOString(),
+            simulated: true,
+            status,
+            statusCode,
+            durationMs:
+              statusCode === 200
+                ? 70 + Math.floor(Math.random() * 240)
+                : 20 + Math.floor(Math.random() * 85),
+            retryAfter: retryAfter != null ? String(retryAfter) : null,
+            request: {
+              url: endpoint,
+              method,
+              headers: buildHeadersFromTemplate(),
+              body: config?.body || null,
+            },
+            response: {
+              status: statusCode,
+              statusText:
+                statusCode === 429
+                  ? 'Too Many Requests'
+                  : statusCode >= 400
+                    ? 'Client Error'
+                    : 'OK',
+              headers:
+                statusCode >= 400
+                  ? {
+                      ...(retryAfter != null ? { 'retry-after': String(retryAfter) } : {}),
+                      'x-ratelimit-limit': String(limitPerWindow),
+                      'x-ratelimit-window': `${windowSeconds}s`,
+                      'x-quota-max': String(quotaMax),
+                      'x-quota-used': String(quotaConsumed),
+                    }
+                  : {
+                      'x-ratelimit-limit': String(limitPerWindow),
+                      'x-ratelimit-window': `${windowSeconds}s`,
+                      'x-quota-max': String(quotaMax),
+                      'x-quota-used': String(quotaConsumed),
+                    },
+              body:
+                statusCode >= 400
+                  ? JSON.stringify({
+                      error:
+                        statusCode === 429
+                          ? 'Rate limit exceeded'
+                          : statusCode === 403 && quotaConsumed >= quotaMax
+                            ? 'Quota exceeded'
+                            : 'Client request error',
+                      simulated: true,
+                      profile,
+                    })
+                  : JSON.stringify({ ok: true, simulated: true, profile }),
+            },
+            rateLimit:
               statusCode === 429
                 ? {
-                    'retry-after': String(retryAfter),
-                    'x-ratelimit-limit': String(limitPerWindow),
-                    'x-ratelimit-window': `${windowSeconds}s`,
+                    detected: true,
+                    retryAfter,
+                    window: windowSeconds,
+                    limit: limitPerWindow,
                   }
-                : {
-                    'x-ratelimit-limit': String(limitPerWindow),
-                    'x-ratelimit-window': `${windowSeconds}s`,
-                  },
-            body:
-              statusCode === 429
-                ? JSON.stringify({ error: 'Rate limit exceeded', simulated: true })
-                : JSON.stringify({ ok: true, simulated: true }),
-          },
-          rateLimit:
-            statusCode === 429
-              ? {
-                  detected: true,
-                  retryAfter,
-                  window: windowSeconds,
-                  limit: limitPerWindow,
-                }
-              : null,
-        });
+                : null,
+            skipCooldownSpan:
+              skipCooldownOn4xx && statusCode >= 400 && statusCode < 500 && statusCode !== 429,
+          });
+        }
+
+        const baseDelay = pacing.drawDelayMs();
+        cursor += burstTick
+          ? Math.max(baseDelay, 650 + Math.floor(Math.random() * 1200))
+          : baseDelay;
+
+        const last = results[results.length - 1];
+        if (last?.statusCode >= 400 && last?.statusCode < 500 && !last?.skipCooldownSpan) {
+          const jumpS = Number(last?.retryAfter || cooldownBase);
+          cursor += jumpS * 1000;
+        }
       }
 
-      // Move cursor with organic pacing profile.
-      const baseDelay = pacing.drawDelayMs();
-      cursor += burstTick
-        ? Math.max(baseDelay, 700 + Math.floor(Math.random() * 1200))
-        : baseDelay;
+      return isTimeboxedShowcase
+        ? results.filter((r) => {
+            const ts = new Date(r?.timestamp || 0).getTime();
+            return Number.isFinite(ts) && ts >= timelineStart && ts <= timelineEnd;
+          })
+        : results;
+    },
+    [
+      apiLimits?.cooldownSeconds,
+      apiLimits?.quotaMax,
+      apiLimits?.rateMax,
+      apiLimits?.windowModel,
+      apiLimits?.windowSeconds,
+      template?.requestMethod,
+      buildHeadersFromTemplate,
+      buildEndpointFromConfig,
+    ]
+  );
 
-      // If a 4XX/429 was emitted in this tick, always skip the cooldown window.
-      const last = simulatedResults[simulatedResults.length - 1];
-      if (last?.statusCode >= 400 && last?.statusCode < 500) {
-        const jumpS = Number(last?.retryAfter || cooldownBase);
-        cursor += jumpS * 1000;
-      }
-    }
+  const runSimulatedTest = useCallback(
+    (config, options = {}) => {
+      const profile = options?.profile || 'baseline';
+      const simulatedResults = buildOrganicMockResults(config, profile, options);
+      startProgressiveSimulation(simulatedResults, options?.jobPrefix || 'sim', {
+        organicPlayback: options?.organicPlayback ?? true,
+        instant: Boolean(options?.instant),
+        overwriteWindowSeconds: Number(options?.overwriteWindowSeconds || 0),
+        showcaseWindowSeconds: Number(options?.showcaseWindowSeconds || 0),
+        source: options?.source || 'simulated',
+        simulated: true,
+      });
+    },
+    [buildOrganicMockResults, startProgressiveSimulation]
+  );
 
-    startProgressiveSimulation(simulatedResults, 'sim', { organicPlayback: true });
-  };
+  // Keep traffic chart scale aligned with selected showcase window.
+  useEffect(() => {
+    if (!showcaseWindow) return;
+    setTrafficTimeScale(showcaseWindow);
+  }, [showcaseWindow]);
+
+  const runShowcaseScenario = useCallback(
+    (scenario) => {
+      if (running) return;
+
+      const selectedScenario = SHOWCASE_SCENARIOS[scenario] || SHOWCASE_SCENARIOS.good;
+      const showcaseSeconds = parseWindowScaleToSeconds(showcaseWindow);
+      const apiWindowSeconds = Math.max(1, Number(apiLimits?.windowSeconds || 60));
+      const rateLimit = Math.max(1, Number(apiLimits?.rateMax || 60));
+      const profileLoadFactor =
+        selectedScenario.profile === 'cautious'
+          ? 0.75
+          : selectedScenario.profile === 'good'
+            ? 0.9
+            : selectedScenario.profile === 'bursty'
+              ? 1.2
+              : selectedScenario.profile === 'quotaDrainer'
+                ? 1.35
+                : selectedScenario.profile === 'bad'
+                  ? 1.45
+                  : 1.0;
+
+      const normalizedRatePerSecond = rateLimit / apiWindowSeconds;
+      const estimatedWindowRequests = Math.ceil(
+        normalizedRatePerSecond * showcaseSeconds * profileLoadFactor
+      );
+      const showcaseTotalRequests = Math.max(60, Math.min(12000, estimatedWindowRequests));
+
+      const baseConfig = {
+        ...(defaultTestConfig || {
+          method: template?.requestMethod || 'GET',
+          path: '/',
+          clients: 1,
+          totalRequests: 40,
+          timeoutMs: 5000,
+          body: '',
+        }),
+        totalRequests: showcaseTotalRequests,
+      };
+      baseConfig.intervalMs = selectedScenario.intervalMs;
+
+      // Ensure chart window reflects exactly the showcase interval being injected.
+      setTrafficTimeScale(showcaseWindow);
+
+      runSimulatedTest(baseConfig, {
+        profile: selectedScenario.profile,
+        jobPrefix: `showcase-${scenario}`,
+        instant: true,
+        source: 'showcase',
+        showcaseWindowSeconds: showcaseSeconds,
+        overwriteWindowSeconds: showcaseSeconds,
+      });
+    },
+    [
+      running,
+      defaultTestConfig,
+      showcaseWindow,
+      apiLimits?.rateMax,
+      apiLimits?.windowSeconds,
+      template?.requestMethod,
+      runSimulatedTest,
+    ]
+  );
 
   // ---------------------------------------------------------------------------
   // Dummy API: fully mocked test — no real HTTP calls, hardcoded responses
@@ -697,7 +852,13 @@ export default function ApiDashboardView({ template }) {
     const DUMMY_IS_SLIDING = dummyControl?.windowModel === 'SLIDING_WINDOW';
     // Burst events: configurable via DummyApiControlPanel
     const BURST_SIZE = clampInt(dummyControl?.burstSize, 2, DEFAULT_DUMMY_CONTROL.burstSize);
-    const BURST_PROBABILITY = Math.min(1, Math.max(0, clampInt(dummyControl?.burstProbability, 0, DEFAULT_DUMMY_CONTROL.burstProbability)) / 100);
+    const BURST_PROBABILITY = Math.min(
+      1,
+      Math.max(
+        0,
+        clampInt(dummyControl?.burstProbability, 0, DEFAULT_DUMMY_CONTROL.burstProbability)
+      ) / 100
+    );
 
     // Estimate total time range. Add extra buffer for burst-induced cooldowns.
     const windowsNeeded = Math.ceil(totalRequests / Math.max(1, DUMMY_RPM_LIMIT));
@@ -776,7 +937,18 @@ export default function ApiDashboardView({ template }) {
     };
 
     // Builds a single result entry
-    const buildEntry = (tsMs, seq, is200, mockBody, method, route, randomId, retryAfterS, remaining, resetTs) => ({
+    const buildEntry = (
+      tsMs,
+      seq,
+      is200,
+      mockBody,
+      method,
+      route,
+      randomId,
+      retryAfterS,
+      remaining,
+      resetTs
+    ) => ({
       seq,
       timestamp: new Date(tsMs).toISOString(),
       status: is200 ? 'ok' : 'rate_limited',
@@ -830,7 +1002,12 @@ export default function ApiDashboardView({ template }) {
       },
       rateLimit: is200
         ? null
-        : { detected: true, retryAfter: retryAfterS, window: DUMMY_WINDOW_S, limit: DUMMY_RPM_LIMIT },
+        : {
+            detected: true,
+            retryAfter: retryAfterS,
+            window: DUMMY_WINDOW_S,
+            limit: DUMMY_RPM_LIMIT,
+          },
     });
 
     // --- Main simulation loop ---
@@ -864,7 +1041,20 @@ export default function ApiDashboardView({ template }) {
         if (cap <= 0) {
           const retryAfterS = getRetryAfterS(tsMs);
           const resetTs = getResetTs(tsMs);
-          simulatedResults.push(buildEntry(tsMs, seqCounter, false, mockBody, method, route, randomId, retryAfterS, 0, resetTs));
+          simulatedResults.push(
+            buildEntry(
+              tsMs,
+              seqCounter,
+              false,
+              mockBody,
+              method,
+              route,
+              randomId,
+              retryAfterS,
+              0,
+              resetTs
+            )
+          );
           hadRateLimit = true;
           lastRetryAfterS = retryAfterS;
         } else {
@@ -872,7 +1062,20 @@ export default function ApiDashboardView({ template }) {
           normalCount++;
           const remaining = getCapacity(tsMs); // post-consume remaining
           const resetTs = getResetTs(tsMs);
-          simulatedResults.push(buildEntry(tsMs, seqCounter, true, mockBody, method, route, randomId, 0, remaining, resetTs));
+          simulatedResults.push(
+            buildEntry(
+              tsMs,
+              seqCounter,
+              true,
+              mockBody,
+              method,
+              route,
+              randomId,
+              0,
+              remaining,
+              resetTs
+            )
+          );
         }
       }
 
@@ -950,9 +1153,9 @@ export default function ApiDashboardView({ template }) {
       timeoutMs: Math.max(1000, parseInt(config?.timeoutMs || 5000, 10)),
       pacing: {
         meanMs: Math.max(20, Number(config?.intervalMs) || 220),
-        stdDevMs: Math.max(10, Math.round((Math.max(20, Number(config?.intervalMs) || 220)) * 0.35)),
+        stdDevMs: Math.max(10, Math.round(Math.max(20, Number(config?.intervalMs) || 220) * 0.35)),
         minMs: 15,
-        maxMs: Math.max(120, Math.round((Math.max(20, Number(config?.intervalMs) || 220)) * 5)),
+        maxMs: Math.max(120, Math.round(Math.max(20, Number(config?.intervalMs) || 220) * 5)),
       },
       rateControl,
       dummyMode: Boolean(isDummyTemplate),
@@ -987,7 +1190,6 @@ export default function ApiDashboardView({ template }) {
 
   const handlePrimaryTestClick = async () => {
     if (running) return;
-    if (isCurrentlyInCooldown) return; // Block clicks during cooldown
 
     const fallbackConfig = {
       ...(defaultTestConfig || {
@@ -1017,29 +1219,11 @@ export default function ApiDashboardView({ template }) {
     }
 
     try {
-      if (testMode === 'simulated' || isDummyTemplate) {
-        if (isDummyTemplate) {
-          runDummyTest(fallbackConfig);
-        } else {
-          runSimulatedTest(fallbackConfig);
-        }
-        return;
+      if (isDummyTemplate) {
+        runDummyTest(fallbackConfig);
+      } else {
+        runSimulatedTest(fallbackConfig);
       }
-
-      if (defaultTestConfig) {
-        // Clone config and apply safe mode if needed
-        const configToUse = { ...defaultTestConfig };
-        if (safeModeEnabled && safeRequestCount !== null) {
-          configToUse.totalRequests = Math.min(
-            parseInt(configToUse.totalRequests || 40, 10),
-            safeRequestCount
-          );
-        }
-        await executeDefaultConfigTest(configToUse);
-        return;
-      }
-
-      setShowModal(true);
     } catch (err) {
       console.error('[ApiDashboardView] Failed to start default test:', err);
       setShowModal(true);
@@ -1175,7 +1359,7 @@ export default function ApiDashboardView({ template }) {
         summary: finalJob.summary || {},
       };
 
-      notifyRateLimitAnd4xx(finalJob.results || []);
+      // Skip notifications for API test results to reduce toast spam
       console.log('[ApiDashboardView] Storing test in history:', testData);
       addTestResult(testData);
       console.log('[ApiDashboardView] History after adding:', history.length + 1, 'tests');
@@ -1189,11 +1373,6 @@ export default function ApiDashboardView({ template }) {
 
   const processResults = (results) => {
     if (!results || results.length === 0) return;
-
-    // Alert on any newly-received 4XX/rate-limited responses (runs only for new slice)
-    const newResults = results.slice(lastAlertedCountRef.current);
-    notifyRateLimitAnd4xx(newResults);
-    lastAlertedCountRef.current = results.length;
 
     setLiveResults(results);
   };
@@ -1215,11 +1394,6 @@ export default function ApiDashboardView({ template }) {
     [capacityResults, apiLimits.cooldownSeconds, apiLimits.windowModel]
   );
 
-  // Check if currently in cooldown (usable anywhere in component)
-  const isCurrentlyInCooldown = useMemo(() => {
-    return cooldownTimeRemaining > 0;
-  }, [cooldownTimeRemaining]);
-
   // Safe mode: calculate safe request count (remaining capacity before rate limit)
   const safeRequestCount = useMemo(() => {
     if (!safeModeEnabled) return null;
@@ -1238,6 +1412,8 @@ export default function ApiDashboardView({ template }) {
   const trafficChartData = useMemo(() => {
     const windowSeconds = Math.max(5, Number(apiLimits?.windowSeconds) || 30);
     const rateLimit = apiLimits?.rateMax || apiLimits?.quotaMax || template?.quotaLimit || null;
+    const isFixedWindow = apiLimits?.windowModel === 'FIXED_WINDOW';
+    const isSlidingWindow = apiLimits?.windowModel === 'SLIDING_WINDOW';
 
     if (!capacityResults || capacityResults.length === 0) {
       const now = Math.floor(Date.now() / 1000);
@@ -1260,6 +1436,39 @@ export default function ApiDashboardView({ template }) {
     const seconds = Object.keys(countBySecond)
       .map(Number)
       .sort((a, b) => a - b);
+
+    // Fixed window model: apply hard throttling at rate limit (no cooldown).
+    const effectiveCountBySecond = { ...countBySecond };
+    const fixedWindowReachedAt = {};
+    if (isFixedWindow && rateLimit) {
+      const windowUsedByStart = {};
+      seconds.forEach((ts) => {
+        const fixedWindowStart = Math.floor(ts / windowSeconds) * windowSeconds;
+        const used = windowUsedByStart[fixedWindowStart] || 0;
+        const rawCount = countBySecond[ts] || 0;
+        const remaining = Math.max(0, rateLimit - used);
+        const accepted = Math.min(rawCount, remaining);
+
+        effectiveCountBySecond[ts] = accepted;
+        windowUsedByStart[fixedWindowStart] = used + accepted;
+
+        if (
+          windowUsedByStart[fixedWindowStart] >= rateLimit &&
+          !Number.isFinite(fixedWindowReachedAt[fixedWindowStart])
+        ) {
+          fixedWindowReachedAt[fixedWindowStart] = ts;
+        }
+      });
+    }
+
+    const isHardLimitedInFixedWindow = (ts) => {
+      if (!isFixedWindow || !rateLimit) return false;
+      const fixedWindowStart = Math.floor(ts / windowSeconds) * windowSeconds;
+      const reachedAt = fixedWindowReachedAt[fixedWindowStart];
+      if (!Number.isFinite(reachedAt)) return false;
+      return ts > reachedAt && ts < fixedWindowStart + windowSeconds;
+    };
+
     if (seconds.length === 0) {
       const now = Math.floor(Date.now() / 1000);
       return {
@@ -1278,16 +1487,18 @@ export default function ApiDashboardView({ template }) {
     let windowBuffer = [];
     const rolling = x.map((ts) => {
       const inCooldown = cooldownSpans.some((s) => ts >= s.start && ts <= s.end);
-      if (inCooldown) {
+      const inFixedHardLimit = isHardLimitedInFixedWindow(ts);
+      if (inCooldown || inFixedHardLimit) {
         windowBuffer = [];
         return 0;
       }
-      const count = countBySecond[ts] || 0;
+      const count = effectiveCountBySecond[ts] || 0;
       windowBuffer.push({ ts, count });
       windowBuffer = windowBuffer.filter((e) => e.ts > ts - windowSeconds);
       const sum = windowBuffer.reduce((s, e) => s + e.count, 0);
       const reachedRateLimit = Boolean(rateLimit && sum >= rateLimit);
-      if (has4xxBySecond[ts] || reachedRateLimit) {
+      const shouldResetTraffic = has4xxBySecond[ts] || (isSlidingWindow && reachedRateLimit);
+      if (shouldResetTraffic) {
         breachedBySecond[ts] = true;
         windowBuffer = [];
         return 0;
@@ -1298,10 +1509,12 @@ export default function ApiDashboardView({ template }) {
     // Instant bars — drop to 0 during cooldown or any 4XX/rate breach second.
     const instant = x.map((ts) => {
       const inCooldown = cooldownSpans.some((s) => ts >= s.start && ts <= s.end);
-      if (inCooldown || has4xxBySecond[ts] || breachedBySecond[ts]) {
+      const inFixedHardLimit = isHardLimitedInFixedWindow(ts);
+      const inSlidingPenalty = isSlidingWindow && has4xxBySecond[ts];
+      if (inCooldown || inFixedHardLimit || inSlidingPenalty || breachedBySecond[ts]) {
         return 0;
       }
-      return countBySecond[ts] || 0;
+      return effectiveCountBySecond[ts] || 0;
     });
 
     // Fixed rate limit horizontal line
@@ -1316,6 +1529,7 @@ export default function ApiDashboardView({ template }) {
     // Time scale filtering for X axis readability
     const scaleToSeconds = {
       '5m': 5 * 60,
+      '10m': 10 * 60,
       '15m': 15 * 60,
       '30m': 30 * 60,
       '1h': 60 * 60,
@@ -1357,74 +1571,40 @@ export default function ApiDashboardView({ template }) {
         ? Number(apiLimits?.windowSeconds) || 60
         : Number(capacityViewInterval);
     const intervalSeconds = Math.max(1, Math.floor(configuredIntervalSeconds));
-    const countByBucket = {};
-    const has4xxByBucket = {};
+    const totalByBucket = {};
+    const effectiveByBucket = {};
 
-    // Historical buckets stay fixed; live buckets only evolve at the tail of the chart.
     capacityResults.forEach((r) => {
       const ts = Math.floor(new Date(r.timestamp).getTime() / 1000);
       const bucketTs = Math.floor(ts / intervalSeconds) * intervalSeconds;
 
-      countByBucket[bucketTs] = (countByBucket[bucketTs] || 0) + 1;
+      totalByBucket[bucketTs] = (totalByBucket[bucketTs] || 0) + 1;
 
-      if (r.statusCode >= 400 && r.statusCode < 500) {
-        has4xxByBucket[bucketTs] = true;
+      const isEffectiveRequest =
+        r?.status === 'ok' || (Number(r?.statusCode) >= 200 && Number(r?.statusCode) < 300);
+      if (isEffectiveRequest) {
+        effectiveByBucket[bucketTs] = (effectiveByBucket[bucketTs] || 0) + 1;
       }
     });
 
-    const buckets = Object.keys(countByBucket)
+    const buckets = Object.keys(totalByBucket)
       .map(Number)
       .sort((a, b) => a - b);
     const baseCooldownBoundaries = cooldownSpans.flatMap((span) => [span.start, span.end]);
 
-    const firstTs = buckets.length > 0 ? buckets[0] : Math.floor(Date.now() / 1000);
-    const lastTs = buckets.length > 0 ? buckets[buckets.length - 1] : firstTs;
-    // Calculate limit first (needed for reset and fixed red limit line)
-    const rateLimit = apiLimits?.rateMax || apiLimits?.quotaMax || template?.quotaLimit || null;
-    const fallbackRateLimit = Math.max(
-      10,
-      ...Object.values(countByBucket),
-      capacityResults.length || 0
+    const rateLimitPerApiWindow = Math.max(
+      0,
+      Number(apiLimits?.rateMax || apiLimits?.quotaMax || template?.quotaLimit || 0)
     );
-    const fixedRateLine = rateLimit || fallbackRateLimit;
-    const cooldownDurationSeconds = Math.max(
-      1,
-      Number(apiLimits?.cooldownSeconds) || intervalSeconds
-    );
+    const apiWindowSeconds = Math.max(1, Number(apiLimits?.windowSeconds || 60));
+    const capacityPerSecond =
+      rateLimitPerApiWindow > 0 ? rateLimitPerApiWindow / apiWindowSeconds : 0;
 
     const isInSpan = (ts, span) => ts >= span.start && ts <= span.end;
     const isInAnySpan = (ts, spans) => spans.some((span) => isInSpan(ts, span));
 
-    // Infer cooldown spans when we exceed rate in the accumulation logic.
-    const inferredCooldownSpans = [];
-
-    let cumulativePreview = 0;
-    buckets.forEach((ts) => {
-      // During backend-reported cooldown there should be no effective traffic.
-      if (isInAnySpan(ts, cooldownSpans)) {
-        return;
-      }
-
-      cumulativePreview += countByBucket[ts] || 0;
-      const exceededRate = Boolean(fixedRateLine && cumulativePreview >= fixedRateLine);
-      const got4xx = Boolean(has4xxByBucket[ts]);
-
-      if (exceededRate || got4xx) {
-        inferredCooldownSpans.push({
-          start: ts,
-          end: ts + cooldownDurationSeconds,
-        });
-        cumulativePreview = 0;
-      }
-    });
-
-    const inferredCooldownBoundaries = inferredCooldownSpans.flatMap((span) => [
-      span.start,
-      span.end,
-    ]);
-    const cooldownBoundaries = [...baseCooldownBoundaries, ...inferredCooldownBoundaries];
-    const allCooldownSpans = [...cooldownSpans, ...inferredCooldownSpans];
-    // Force a visual drop to zero right after cooldown starts.
+    const allCooldownSpans = [...cooldownSpans];
+    const cooldownBoundaries = [...baseCooldownBoundaries];
     const cooldownDropMarkers = allCooldownSpans.map((span) => Math.min(span.end, span.start + 1));
     const x = [...new Set([...buckets, ...cooldownBoundaries, ...cooldownDropMarkers])].sort(
       (a, b) => a - b
@@ -1432,115 +1612,116 @@ export default function ApiDashboardView({ template }) {
 
     if (x.length === 0) {
       const now = Math.floor(Date.now() / 1000);
+      const defaultEffectiveCapacity = rateLimitPerApiWindow > 0 ? rateLimitPerApiWindow : 1;
       return {
-        data: [[now], [0], [fixedRateLine], [null]],
-        maxY: 1,
+        data: [[now], [0], [0], [defaultEffectiveCapacity], [defaultEffectiveCapacity], [null]],
+        maxY: defaultEffectiveCapacity,
+        effectiveCapacity: defaultEffectiveCapacity,
+        usedCapacity: 0,
+        lostCapacity: 0,
+        remainingCapacity: defaultEffectiveCapacity,
+        selectedWindowSeconds: 0,
+        intervalSeconds,
       };
     }
 
-    let cumulative = 0;
-    const accumulatedTraffic = x.map((ts) => {
-      const inCooldown = isInAnySpan(ts, allCooldownSpans);
-      if (inCooldown) {
-        // Wasted capacity period: no requests should be counted.
-        return 0;
+    // Keep capacity chart time window aligned with traffic/showcase scale.
+    const scaleToSeconds = {
+      '5m': 5 * 60,
+      '10m': 10 * 60,
+      '15m': 15 * 60,
+      '30m': 30 * 60,
+      '1h': 60 * 60,
+      '6h': 6 * 60 * 60,
+      '24h': 24 * 60 * 60,
+      all: null,
+    };
+    const selectedWindowSeconds = scaleToSeconds[trafficTimeScale] ?? scaleToSeconds['1h'];
+    const latestTs = x[x.length - 1];
+    const computedWindowSeconds =
+      selectedWindowSeconds || Math.max(intervalSeconds, latestTs - x[0] + intervalSeconds);
+    const windowStartTs = latestTs - computedWindowSeconds;
+
+    const firstInWindowIdx = x.findIndex((ts) => ts >= windowStartTs);
+    const startIdx = firstInWindowIdx > 0 ? firstInWindowIdx - 1 : Math.max(0, firstInWindowIdx);
+    const visibleX = x.slice(startIdx);
+
+    const getCooldownOverlapSeconds = (fromTs, toTs) => {
+      if (toTs <= fromTs) return 0;
+      let overlap = 0;
+      for (const span of allCooldownSpans) {
+        const start = Math.max(fromTs, span.start);
+        const end = Math.min(toTs, span.end);
+        if (end > start) {
+          overlap += end - start;
+        }
       }
+      return overlap;
+    };
 
-      cumulative += countByBucket[ts] || 0;
-      const currentValue = cumulative;
+    const effectiveCapacityTotal = Math.max(
+      1,
+      Math.round(
+        (capacityPerSecond > 0 ? capacityPerSecond : 1 / apiWindowSeconds) * computedWindowSeconds
+      )
+    );
 
-      // Reset counter when reaching limit or on 4XX/rate_limited feedback.
-      const shouldResetBy4xx = has4xxByBucket[ts];
-      const shouldResetByLimit = Boolean(fixedRateLine && cumulative >= fixedRateLine);
+    let usedCapacity = 0;
+    const usedSeries = [];
+    const lostSeries = [];
+    const remainingSeries = [];
 
-      if (shouldResetBy4xx || shouldResetByLimit) {
-        cumulative = 0;
-      }
+    visibleX.forEach((ts, idx) => {
+      usedCapacity += effectiveByBucket[ts] || 0;
+      const elapsedStart = windowStartTs;
+      const elapsedEnd = ts + intervalSeconds;
+      const cooldownOverlapSeconds = getCooldownOverlapSeconds(elapsedStart, elapsedEnd);
+      const rawLost = cooldownOverlapSeconds * (capacityPerSecond || 0);
+      const lostCapacity = Math.max(0, Math.round(rawLost));
+      const remaining = Math.max(0, effectiveCapacityTotal - usedCapacity - lostCapacity);
 
-      return currentValue;
+      usedSeries[idx] = Math.min(effectiveCapacityTotal, usedCapacity);
+      lostSeries[idx] = Math.min(effectiveCapacityTotal, lostCapacity);
+      remainingSeries[idx] = remaining;
     });
-    const fixedRateSeries = x.map(() => fixedRateLine);
-    const maxY = Math.max(1, fixedRateLine, ...accumulatedTraffic);
 
-    const cooldownOverlay = x.map((ts) => {
-      return isInAnySpan(ts, allCooldownSpans) ? maxY * 1.05 : null;
-    });
+    const effectiveLineSeries = visibleX.map(() => effectiveCapacityTotal);
+    const maxY = Math.max(
+      1,
+      effectiveCapacityTotal,
+      ...usedSeries,
+      ...lostSeries,
+      ...remainingSeries
+    );
+    const cooldownOverlay = visibleX.map((ts) =>
+      isInAnySpan(ts, allCooldownSpans) ? maxY * 1.05 : null
+    );
 
     return {
-      data: [x, accumulatedTraffic, fixedRateSeries, cooldownOverlay],
+      data: [
+        visibleX,
+        usedSeries,
+        lostSeries,
+        remainingSeries,
+        effectiveLineSeries,
+        cooldownOverlay,
+      ],
       maxY,
-      quotaLimit: fixedRateLine,
+      effectiveCapacity: effectiveCapacityTotal,
+      usedCapacity: usedSeries[usedSeries.length - 1] || 0,
+      lostCapacity: lostSeries[lostSeries.length - 1] || 0,
+      remainingCapacity: remainingSeries[remainingSeries.length - 1] || effectiveCapacityTotal,
+      selectedWindowSeconds: computedWindowSeconds,
       intervalSeconds,
     };
-  }, [capacityResults, cooldownSpans, apiLimits, template?.quotaLimit, capacityViewInterval]);
-
-  // Cooldown toast ID ref so we can update/remove the same toast
-  const cooldownToastIdRef = useRef(null);
-
-  // Cooldown timer: update remaining time every second + drive toast
-  useEffect(() => {
-    if (!activeCooldownEnd) {
-      setCooldownTimeRemaining(0);
-      // Remove stale cooldown toast if any
-      if (cooldownToastIdRef.current !== null) {
-        toast.removeToast(cooldownToastIdRef.current);
-        cooldownToastIdRef.current = null;
-      }
-      return;
-    }
-
-    const updateTimer = () => {
-      const now = Math.floor(Date.now() / 1000);
-      const remaining = Math.max(0, activeCooldownEnd - now);
-      setCooldownTimeRemaining(remaining);
-
-      if (remaining <= 0) {
-        setActiveCooldownEnd(null);
-        if (cooldownTimerInterval.current) {
-          clearInterval(cooldownTimerInterval.current);
-          cooldownTimerInterval.current = null;
-        }
-        if (cooldownToastIdRef.current !== null) {
-          toast.removeToast(cooldownToastIdRef.current);
-          cooldownToastIdRef.current = null;
-        }
-        return;
-      }
-
-      const msg = `Cooldown activo — sin peticiones por ${remaining}s`;
-      if (cooldownToastIdRef.current === null) {
-        // Create persistent toast (duration 0 = no auto-dismiss)
-        cooldownToastIdRef.current = toast.addToast(msg, 'warning', 0, 'cooldown-active');
-      } else {
-        // Update existing toast message in place
-        toast.updateToast(cooldownToastIdRef.current, msg);
-      }
-    };
-
-    updateTimer();
-    cooldownTimerInterval.current = setInterval(updateTimer, 1000);
-
-    return () => {
-      if (cooldownTimerInterval.current) {
-        clearInterval(cooldownTimerInterval.current);
-        cooldownTimerInterval.current = null;
-      }
-    };
-  }, [activeCooldownEnd, toast]);
-
-  // Detect latest cooldown span and activate timer
-  useEffect(() => {
-    const allCooldownSpans = cooldownSpans || [];
-    if (allCooldownSpans.length === 0) {
-      setActiveCooldownEnd(null);
-      return;
-    }
-
-    const latestSpan = allCooldownSpans[allCooldownSpans.length - 1];
-    if (latestSpan && latestSpan.end) {
-      setActiveCooldownEnd(latestSpan.end);
-    }
-  }, [cooldownSpans]);
+  }, [
+    capacityResults,
+    cooldownSpans,
+    apiLimits,
+    template?.quotaLimit,
+    capacityViewInterval,
+    trafficTimeScale,
+  ]);
 
   useEffect(() => {
     setResolvedIsDummy(Boolean(template?.isDummy));
@@ -1570,7 +1751,6 @@ export default function ApiDashboardView({ template }) {
   useEffect(() => {
     return () => {
       if (pollInterval.current) clearInterval(pollInterval.current);
-      if (cooldownTimerInterval.current) clearInterval(cooldownTimerInterval.current);
     };
   }, []);
 
@@ -1712,6 +1892,13 @@ export default function ApiDashboardView({ template }) {
   }, [template?.id, isDummyTemplate, dummyControl]);
 
   useEffect(() => {
+    if (!SIMULATION_ONLY_MODE) return;
+    if (testMode !== 'simulated') {
+      setTestMode('simulated');
+    }
+  }, [testMode]);
+
+  useEffect(() => {
     const loadDefaultTestConfig = async () => {
       if (!template?.id) {
         setDefaultTestConfig(null);
@@ -1779,12 +1966,8 @@ export default function ApiDashboardView({ template }) {
       try {
         if (isDummyTemplate) {
           runDummyTest(fallbackConfig);
-        } else if (testMode === 'simulated') {
-          runSimulatedTest(fallbackConfig);
-        } else if (defaultTestConfig) {
-          await executeDefaultConfigTest(defaultTestConfig);
         } else {
-          console.log('[Auto-refresh] No default config available');
+          runSimulatedTest(fallbackConfig);
         }
       } catch (err) {
         console.error('[Auto-refresh] Failed to execute test:', err);
@@ -1817,6 +2000,42 @@ export default function ApiDashboardView({ template }) {
     defaultTestConfig,
     testMode,
     dummyControl,
+  ]);
+
+  useEffect(() => {
+    if (!storageReady || !template?.id) return;
+    if (running) return;
+    if (history.length > 0) return;
+    if (!apiLimits?.fetched) return;
+    if (seededTemplateIdsRef.current.has(template.id)) return;
+
+    seededTemplateIdsRef.current.add(template.id);
+
+    const warmupConfig = {
+      method: template?.requestMethod || 'GET',
+      path: '/',
+      clients: 1,
+      totalRequests: Math.max(20, Math.min(90, Number(apiLimits?.rateMax || 60))),
+      timeoutMs: 5000,
+      body: '',
+      intervalMs: 240,
+    };
+
+    runSimulatedTest(warmupConfig, {
+      profile: 'baseline',
+      jobPrefix: 'warmup',
+      instant: true,
+      organicPlayback: false,
+    });
+  }, [
+    storageReady,
+    template?.id,
+    template?.requestMethod,
+    running,
+    history.length,
+    apiLimits?.fetched,
+    apiLimits?.rateMax,
+    runSimulatedTest,
   ]);
 
   /**
@@ -1896,7 +2115,7 @@ export default function ApiDashboardView({ template }) {
   }, [template?.id, isDummyTemplate, dummyControl]);
 
   const capacityCooldownOpts = {
-    title: 'Capacidad / Cuota y Cooldown',
+    title: 'Capacidad Efectiva y Perdida',
     height: 260,
     cursor: {
       drag: {
@@ -1931,23 +2150,35 @@ export default function ApiDashboardView({ template }) {
     series: [
       { label: 'Tiempo' },
       {
-        label: 'Historico acumulado',
+        label: 'Capacidad consumida (efectiva)',
         stroke: '#0ea5e9',
         width: 3,
         fill: 'rgba(14,165,233,0.10)',
       },
       {
-        label: 'Rate maximo',
+        label: 'Capacidad perdida (cooldown)',
+        stroke: '#f97316',
+        width: 3,
+        fill: 'rgba(249,115,22,0.12)',
+      },
+      {
+        label: 'Capacidad restante',
+        stroke: '#22c55e',
+        width: 3,
+        fill: 'rgba(34,197,94,0.10)',
+      },
+      {
+        label: 'Capacidad efectiva total',
         stroke: '#ef4444',
         width: 2,
         dash: [6, 6],
         points: { show: false },
       },
       {
-        label: 'Zona cooldown por exceso',
+        label: 'Zona de cooldown',
         stroke: '#f43f5e',
         width: 0,
-        fill: 'rgba(244,63,94,0.28)',
+        fill: 'rgba(255, 156, 74, 0.06)',
         points: { show: false },
       },
     ],
@@ -1972,6 +2203,15 @@ export default function ApiDashboardView({ template }) {
           >
             <Pencil size={16} />
           </BaseButton>
+          {!isDummyTemplate && (
+            <BaseButton
+              variant="icon"
+              size="icon"
+              onClick={showDatasheet ? () => setShowDatasheet(false) : () => setShowDatasheet(true)}
+            >
+              <FileText size={16} />
+            </BaseButton>
+          )}
         </div>
 
         {/* Stats Section */}
@@ -2021,9 +2261,6 @@ export default function ApiDashboardView({ template }) {
                   : 'No detectado'}
           </span>
           <span className="badge badge-info text-xs">
-            Cooldown base: {apiLimits.cooldownSeconds}s
-          </span>
-          <span className="badge badge-info text-xs">
             Test por defecto:{' '}
             {loadingDefaultConfig
               ? 'cargando...'
@@ -2034,7 +2271,7 @@ export default function ApiDashboardView({ template }) {
         </div>
 
         {/* Action header: ActionBar + SafeMode/AutoRefresh in one row */}
-        <div className="flex flex-row gap-2 items-center w-full justify-between mb-4 bg-primary p-2 rounded-lg border border-border">
+        {/*<div className="flex flex-row gap-2 items-center w-full justify-between mb-4 bg-primary p-2 rounded-lg border border-border">
           <SafeModeAutoRefreshCard
             safeModeEnabled={safeModeEnabled}
             onSafeModeChange={setSafeModeEnabled}
@@ -2049,21 +2286,74 @@ export default function ApiDashboardView({ template }) {
           <ApiDashboardActionBar
             testMode={testMode}
             running={running}
-            inCooldown={isCurrentlyInCooldown}
+            inCooldown={false}
             loadingDefaultConfig={loadingDefaultConfig}
             loadingDatasheet={loadingDatasheet}
             showDatasheet={showDatasheet}
             onToggleMode={() => {
-              if (!isDummyTemplate) {
-                setTestMode((prev) => (prev === 'real' ? 'simulated' : 'real'));
-              }
+              setTestMode('simulated');
             }}
             onEdit={() => setShowEditModal(true)}
             onToggleDatasheet={() => setShowDatasheet(!showDatasheet)}
             onRun={handlePrimaryTestClick}
             onConfigure={() => setShowModal(true)}
             isDummyTemplate={isDummyTemplate}
+            simulationOnly={SIMULATION_ONLY_MODE}
           />
+        </div>*/}
+
+        <div className="flex flex-col gap-2 section-card items-start w-full mb-4">
+          <h2 className="text-lg font-bold text-text">Controles de Showcase</h2>
+          <div className="flex items-center gap-4 justify-start px-2 py-1">
+            <div className="flex items-center gap-2 bg-primary border border-border rounded-md px-2 py-1">
+              <span className="text-xs text-slate-400">Ventana showcase</span>
+              <select
+                value={showcaseWindow}
+                onChange={(e) => setShowcaseWindow(e.target.value)}
+                className="form-select !py-1 !px-2 !text-xs min-w-[72px]"
+                disabled={running}
+              >
+                {SHOWCASE_WINDOW_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 bg-primary border border-border rounded-md px-2 py-1">
+              <span className="text-xs text-slate-400">Tipo showcase</span>
+              <select
+                value={selectedShowcaseScenario}
+                onChange={(e) => setSelectedShowcaseScenario(e.target.value)}
+                className="form-select !py-1 !px-2 !text-xs min-w-[170px]"
+                disabled={running}
+              >
+                {SHOWCASE_PROFILE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <BaseButton
+              variant="secondary"
+              size="sm"
+              onClick={() => runShowcaseScenario(selectedShowcaseScenario)}
+              disabled={running}
+              tooltip="Aplica el perfil seleccionado e inyecta datos simulados en la ventana actual"
+            >
+              Aplicar Perfil Showcase
+            </BaseButton>
+            <BaseButton
+              variant="secondary"
+              size="sm"
+              onClick={() => runShowcaseScenario(selectedShowcaseScenario)}
+              disabled={running}
+              tooltip="Recarga los datos inyectados para el perfil showcase seleccionado"
+            >
+              Reload
+            </BaseButton>
+          </div>
         </div>
 
         {isDummyTemplate && (
@@ -2136,6 +2426,7 @@ export default function ApiDashboardView({ template }) {
             </div>
 
             <CapacityCooldownChartCard
+              key={`capacity-${activeJobId || 'idle'}-${trafficTimeScale}`}
               capacityViewInterval={capacityViewInterval}
               onCapacityViewIntervalChange={setCapacityViewInterval}
               apiLimits={apiLimits}
@@ -2175,52 +2466,6 @@ export default function ApiDashboardView({ template }) {
               <SimpleRealTimePanel liveResults={liveResults} />
             )}
           </BaseCard>
-        </div>
-      )}
-
-      {activeTab === 'cooldown' && (
-        <div className="container-max-width mx-auto my-6">
-          <BaseCard>
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-lg font-bold mb-0">Eventos de Cooldown</h3>
-              <BaseButton
-                onClick={() => clearHistory()}
-                className="!p-2 !text-xs"
-                disabled={history.length === 0}
-              >
-                <Trash2 size={14} />
-              </BaseButton>
-            </div>
-            <div className="p-2 space-y-3 max-h-[350px] overflow-auto">
-              {cooldownSpans.length === 0 && (
-                <p className="text-sm text-slate-400 text-center py-10">
-                  Sin eventos de cooldown detectados todavia
-                </p>
-              )}
-              {cooldownSpans.map((span, idx) => (
-                <div
-                  key={`${span.start}-${idx}`}
-                  className="p-3 border border-secondary-lighter rounded-lg"
-                >
-                  <p className="text-xs text-slate-400">
-                    {new Date(span.start * 1000).toLocaleTimeString('es-ES')}
-                  </p>
-                  <p className="font-semibold text-text">
-                    Error {span.statusCode} - cooldown {span.cooldownSeconds}s
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    Hasta: {new Date(span.end * 1000).toLocaleTimeString('es-ES')}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </BaseCard>
-        </div>
-      )}
-
-      {activeTab === 'storage' && (
-        <div className="container-max-width mx-auto my-6">
-          <StorageInfoPanel />
         </div>
       )}
 

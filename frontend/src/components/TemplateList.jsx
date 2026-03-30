@@ -33,7 +33,6 @@ export default function TemplateList({
             key={t.id}
             template={t}
             className="overflow-hidden"
-            collectionName={collectionMap[t.collectionId]?.name || null}
             onDashboard={onSelect}
             onManageConfigs={onManageConfigs}
             onEdit={onEdit}

@@ -10,7 +10,7 @@ import {
   createCollection,
 } from '../services/apiTemplateService.js';
 import { useToast } from '../stores/toastStore.jsx';
-import { Code, Eye, CheckCircle, XCircle, Upload, X, FileText } from 'lucide-react';
+import { Code, CheckCircle, XCircle, Upload, X, FileText } from 'lucide-react';
 
 const DEFAULT_DUMMY_CONFIG = {
   quotaMax: 1000,
@@ -20,6 +20,8 @@ const DEFAULT_DUMMY_CONFIG = {
   cooldownSeconds: 30,
   totalRequests: 80,
 };
+
+const DEFAULT_AUTH_CREDENTIAL = 'NO_AUTH_REQUIRED';
 
 const DUMMY_DATASHEET = `associatedSaaS: Dummy Weather API
 url: https://jsonplaceholder.typicode.com
@@ -75,6 +77,7 @@ export default function TemplateForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [uploadedFileName, setUploadedFileName] = useState(null);
+  const [datasheetInputMode, setDatasheetInputMode] = useState('upload');
   const fileInputRef = useRef(null);
   const manualBackupRef = useRef(null);
   const toast = useToast();
@@ -180,6 +183,7 @@ export default function TemplateForm({
           yaml.load(content);
           handleChange('datasheet', content);
           setUploadedFileName(file.name);
+          setDatasheetInputMode('upload');
           toast.success(`File "${file.name}" loaded successfully`);
         }
       } catch (err) {
@@ -207,12 +211,29 @@ export default function TemplateForm({
     toast.info('Datasheet cleared');
   };
 
+  const handleDatasheetModeChange = (mode) => {
+    setDatasheetInputMode(mode);
+    if (mode === 'paste') {
+      setUploadedFileName(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const submit = async () => {
     setError(null);
     setSubmitting(true);
     try {
+      const normalizedAuthMethod = requiresAuth ? form.authMethod : '';
+      const normalizedAuthCredential = requiresAuth
+        ? (form.authCredential || '').trim() || DEFAULT_AUTH_CREDENTIAL
+        : DEFAULT_AUTH_CREDENTIAL;
+
       const payload = {
         ...form,
+        authMethod: normalizedAuthMethod,
+        authCredential: normalizedAuthCredential,
         collectionId: form.collectionId || null,
         isDummy: isDummyApi,
         dummyConfig: isDummyApi ? template?.dummyConfig || DEFAULT_DUMMY_CONFIG : null,
@@ -374,11 +395,11 @@ export default function TemplateForm({
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label muted">Credential</label>
+                  <label className="form-label muted">Credential (opcional)</label>
                   <div className="flex items-center gap-3">
                     <input
                       type={form.showCredential ? 'text' : 'password'}
-                      placeholder="Enter your credential securely"
+                      placeholder="Si lo dejas vacío se asigna una credencial por defecto"
                       value={form.authCredential}
                       onChange={(e) => handleChange('authCredential', e.target.value)}
                       className="form-input flex-1"
@@ -392,58 +413,106 @@ export default function TemplateForm({
 
           {/* Datasheet YAML */}
           <div className="form-group">
-            <label className="form-label muted">API Datasheet (YAML)</label>
-
-            {/* File Upload Area */}
-            {!uploadedFileName ? (
-              <div className="relative">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".yml,.yaml"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="datasheet-file-input"
-                />
-                <label
-                  htmlFor="datasheet-file-input"
-                  className="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
+            <div className="flex items-center justify-between mb-2">
+              <label className="form-label muted mb-0">API Datasheet (YAML)</label>
+              <div className="inline-flex items-center gap-1 p-1 rounded-lg border border-gray-200 bg-gray-50">
+                <BaseButton
+                  type="button"
+                  variant={datasheetInputMode === 'upload' ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleDatasheetModeChange('upload')}
                 >
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Upload size={40} className="text-gray-400 mb-3" />
-                    <p className="mb-2 text-sm text-gray-600">
-                      <span className="font-semibold">Click to upload</span> or drag and drop
-                    </p>
-                    <p className="text-xs text-gray-500">YAML files only (.yml, .yaml)</p>
-                  </div>
-                </label>
+                  <Upload size={14} className="mr-1" />
+                  Subir datasheet
+                </BaseButton>
+                <BaseButton
+                  type="button"
+                  variant={datasheetInputMode === 'paste' ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => handleDatasheetModeChange('paste')}
+                >
+                  <Code size={14} className="mr-1" />
+                  Pegar datasheet
+                </BaseButton>
               </div>
-            ) : (
-              <BaseCard className="flex flex-row items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <FileText size={24} className="text-muted" />
-                  <div>
-                    <p className="text-sm font-medium text-muted">{uploadedFileName}</p>
-                    <p className="text-xs text-muted">
-                      {form.datasheet.split('\n').length} lines •{' '}
-                      {(form.datasheet.length / 1024).toFixed(1)} KB
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <BaseButton
-                    variant="icon"
-                    size="icon"
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
+            </div>
+
+            {datasheetInputMode === 'upload' ? (
+              !uploadedFileName ? (
+                <div className="relative">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".yml,.yaml"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="datasheet-file-input"
+                  />
+                  <label
+                    htmlFor="datasheet-file-input"
+                    className="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
                   >
-                    <Upload size={14} />
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Upload size={40} className="text-gray-400 mb-3" />
+                      <p className="mb-2 text-sm text-gray-600">
+                        <span className="font-semibold">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500">YAML files only (.yml, .yaml)</p>
+                    </div>
+                  </label>
+                </div>
+              ) : (
+                <BaseCard className="flex flex-row items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <FileText size={24} className="text-muted" />
+                    <div>
+                      <p className="text-sm font-medium text-muted">{uploadedFileName}</p>
+                      <p className="text-xs text-muted">
+                        {form.datasheet.split('\n').length} lines •{' '}
+                        {(form.datasheet.length / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <BaseButton
+                      variant="icon"
+                      size="icon"
+                      onClick={() => fileInputRef.current?.click()}
+                      type="button"
+                    >
+                      <Upload size={14} />
+                    </BaseButton>
+                    <BaseButton
+                      variant="icon"
+                      size="icon"
+                      onClick={handleClearFile}
+                      type="button"
+                    >
+                      <X size={14} />
+                    </BaseButton>
+                  </div>
+                </BaseCard>
+              )
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  value={form.datasheet}
+                  onChange={(e) => {
+                    handleChange('datasheet', e.target.value);
+                    setUploadedFileName(null);
+                  }}
+                  placeholder="Pega aquí el contenido YAML de la datasheet"
+                  className="form-textarea min-h-48"
+                />
+                <div className="flex justify-end gap-2">
+                  <BaseButton type="button" variant="secondary" onClick={handleFormatYAML}>
+                    Formatear YAML
                   </BaseButton>
-                  <BaseButton variant="icon" size="icon" onClick={handleClearFile} type="button">
-                    <X size={14} />
+                  <BaseButton type="button" variant="ghost" onClick={handleClearFile}>
+                    Limpiar
                   </BaseButton>
                 </div>
-              </BaseCard>
+              </div>
             )}
           </div>
         </div>

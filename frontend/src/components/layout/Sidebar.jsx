@@ -3,7 +3,7 @@ import { Menu, X, FileText, FolderOpen, FolderTree } from 'lucide-react';
 import Tooltip from '../Tooltip.jsx';
 
 export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
-  const logo = '/score-logo.png';
+  const logo = '/score-favicon-white.png';
   const navItems = [
     {
       id: 'dashboard',
@@ -47,7 +47,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onToggle }) {
               </div>
             </button>
           </Tooltip>
-          {isOpen && <span className="sidebar-logo-text">Pruebas de uso de API</span>}
+          {isOpen && <span className="sidebar-logo-text">API Showcase</span>}
         </div>
 
         {/* Navigation */}

@@ -7,6 +7,7 @@ import Tooltip from '../../Tooltip.jsx';
 
 const TIME_SCALE_OPTIONS = [
   { value: '5m', label: '5m' },
+  { value: '10m', label: '10m' },
   { value: '15m', label: '15m' },
   { value: '30m', label: '30m' },
   { value: '1h', label: '1h' },

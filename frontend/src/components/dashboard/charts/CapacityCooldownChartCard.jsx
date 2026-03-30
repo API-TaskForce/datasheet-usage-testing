@@ -16,9 +16,9 @@ export default function CapacityCooldownChartCard({
     <BaseCard className="h-full flex flex-col">
       <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-lg font-bold mb-0">Capacidad / Cuota con Cooldown 4XX</h3>
+            <h3 className="text-lg font-bold mb-0">Capacidad Efectiva</h3>
             <Tooltip
-              text="Capacidad de cuota consumida y periodos de cooldown tras errores 4XX. El tráfico se resetea al alcanzar el límite o tras un cooldown."
+              text="Capacidad efectiva = peticiones permitidas en la ventana seleccionada. Capacidad perdida = peticiones potenciales que se pierden durante cooldown."
               placement="bottom"
             >
               <Info size={15} className="text-slate-400 cursor-help flex-shrink-0" />
@@ -59,23 +59,17 @@ export default function CapacityCooldownChartCard({
               persistenceKey="api-dashboard-capacity-chart"
             />
             <div className="mt-2 text-xs text-slate-400 flex justify-between items-center">
-              {(apiLimits.windowModel === 'FIXED_WINDOW' ||
-                apiLimits.windowModel === 'SLIDING_WINDOW') && (
-                <span>
-                  Tráfico acumulado se resetea al alcanzar el límite de rate (
-                  {apiLimits.windowModel === 'FIXED_WINDOW' ? 'Ventana Fija' : 'Ventana Deslizante'})
-                  {' '}o al recibir error 4XX
-                </span>
-              )}
+              <span>
+                Efectiva: {capacityChartData.effectiveCapacity} · Consumida: {capacityChartData.usedCapacity} · Perdida: {capacityChartData.lostCapacity} · Restante: {capacityChartData.remainingCapacity}
+              </span>
               <span className="text-blue-400 font-medium ml-auto">
-                Intervalo de rate: {capacityChartData.intervalSeconds}s | Cooldown = sin peticiones
-                {' '}(wasted capacity) | Drag = zoom | Doble click = reset
+                Bucket: {capacityChartData.intervalSeconds}s | Cooldown = capacidad perdida | Drag = zoom | Doble click = reset
               </span>
             </div>
           </>
         ) : (
           <p className="text-sm text-slate-400 text-center py-12">
-            Ejecuta un test para ver la evolucion de capacidad y cooldown
+            Ejecuta un test para ver capacidad efectiva, perdida y restante
           </p>
         )}
       </div>

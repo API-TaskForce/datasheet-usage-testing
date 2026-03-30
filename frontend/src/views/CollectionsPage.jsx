@@ -356,17 +356,35 @@ export default function CollectionsPage({ onSelectTemplate }) {
           }}
           onAddToCollection={async (ids) => {
             setShowSelectorModalFor(null);
-            await Promise.all(
-              ids.map((id) => {
-                const template = templates.find((t) => t.id === id);
-                if (!template) return Promise.resolve();
+            let updatedCount = 0;
+            let failedCount = 0;
 
-                return updateTemplate(id, {
+            for (const id of ids) {
+              const template = templates.find((t) => t.id === id);
+              if (!template) {
+                failedCount += 1;
+                continue;
+              }
+
+              try {
+                await updateTemplate(id, {
                   ...template,
                   collectionId: showSelectorModalFor.id,
                 });
-              })
-            );
+                updatedCount += 1;
+              } catch {
+                failedCount += 1;
+              }
+            }
+
+            if (updatedCount > 0 && failedCount === 0) {
+              toast.success(`Se anadieron ${updatedCount} APIs a la coleccion`);
+            } else if (updatedCount > 0 && failedCount > 0) {
+              toast.error(`Se anadieron ${updatedCount} APIs, pero ${failedCount} fallaron`);
+            } else {
+              toast.error('No se pudo anadir ninguna API a la coleccion');
+            }
+
             await loadData();
           }}
           onClose={() => setShowSelectorModalFor(null)}

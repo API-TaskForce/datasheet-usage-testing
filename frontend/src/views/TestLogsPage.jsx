@@ -1,13 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { getTestLogs, deleteTestLog, deleteAllTestLogs } from '../services/apiTemplateService.js';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  getTestLogs,
+  deleteTestLog,
+  deleteAllTestLogs,
+  getTemplates,
+} from '../services/apiTemplateService.js';
 import { useToast } from '../stores/toastStore.jsx';
 import BaseButton from '../components/BaseButton.jsx';
 import BaseCard from '../components/BaseCard.jsx';
 import TestLogDetailModal from '../components/TestLogDetailModal.jsx';
-import { RefreshCw, Trash2, Filter, X, CheckSquare, Square } from 'lucide-react';
+import { RefreshCw, Trash2, Filter, X, CheckSquare, Square, ChevronRight, ChevronDown } from 'lucide-react';
 
 export default function TestLogsPage() {
   const [logs, setLogs] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
@@ -16,6 +22,7 @@ export default function TestLogsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedLogIds, setSelectedLogIds] = useState([]);
   const [bulkMode, setBulkMode] = useState(false);
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState([]);
   const toast = useToast();
 
   const loadLogs = async () => {
@@ -23,10 +30,11 @@ export default function TestLogsPage() {
     setError(null);
     setSelectedLogIds([]);
     try {
-      const data = await getTestLogs();
+      const [logsData, templatesData] = await Promise.all([getTestLogs(), getTemplates()]);
       // Sort by createdAt descending (newest first)
-      const sorted = data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      const sorted = (logsData || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setLogs(sorted);
+      setTemplates(templatesData || []);
       if (sorted.length === 0) {
         toast.info('No se encontraron registros de pruebas');
       } else {
@@ -92,10 +100,111 @@ export default function TestLogsPage() {
     }
   };
 
+  const toggleGroup = (groupKey) => {
+    setExpandedGroupKeys((prev) =>
+      prev.includes(groupKey) ? prev.filter((key) => key !== groupKey) : [...prev, groupKey]
+    );
+  };
+
   const filteredLogs = logs.filter((log) => {
     if (filterStatus === 'all') return true;
     return log.status === filterStatus;
   });
+
+  const normalizeUri = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    try {
+      const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      const parsed = new URL(withProtocol);
+      const normalizedHost = String(parsed.host || '').trim().toLowerCase();
+      const normalizedPath = String(parsed.pathname || '/').replace(/\/+$/, '').toLowerCase();
+      const safePath = normalizedPath && normalizedPath !== '/' ? normalizedPath : '';
+      return `${normalizedHost}${safePath}`;
+    } catch {
+      return raw.toLowerCase().replace(/\/$/, '');
+    }
+  };
+
+  const templateUriMatchers = useMemo(() => {
+    const matchers = (templates || [])
+      .map((template) => ({
+        template,
+        baseUri: normalizeUri(template?.apiUri),
+      }))
+      .filter((item) => item.baseUri)
+      .sort((a, b) => b.baseUri.length - a.baseUri.length);
+
+    return matchers;
+  }, [templates]);
+
+  const templateIdIndex = useMemo(() => {
+    const index = new Map();
+    (templates || []).forEach((template) => {
+      if (template?.id) index.set(String(template.id), template);
+    });
+    return index;
+  }, [templates]);
+
+  const groupedLogs = useMemo(() => {
+    const groups = new Map();
+
+    const getGroupFromLog = (log) => {
+      const directTemplateId =
+        log?.templateId ||
+        log?.config?.templateId ||
+        log?.config?.apiTemplateId ||
+        log?.config?.template?.id;
+
+      if (directTemplateId) {
+        const matchedTemplate = templateIdIndex.get(String(directTemplateId));
+        if (matchedTemplate) {
+          return {
+            key: `template:${matchedTemplate.id}`,
+            label: matchedTemplate.name || 'Template sin nombre',
+          };
+        }
+      }
+
+      const testUri = normalizeUri(log?.config?.endpoint);
+      if (testUri) {
+        const matched = templateUriMatchers.find(({ baseUri }) => {
+          return testUri === baseUri || testUri.startsWith(`${baseUri}/`);
+        });
+        const matchedTemplate = matched?.template;
+        if (matchedTemplate) {
+          return {
+            key: `template:${matchedTemplate.id}`,
+            label: matchedTemplate.name || 'Template sin nombre',
+          };
+        }
+      }
+
+      return {
+        key: 'template:unknown',
+        label: 'Sin template identificado',
+      };
+    };
+
+    filteredLogs.forEach((log) => {
+      const group = getGroupFromLog(log);
+      if (!groups.has(group.key)) {
+        groups.set(group.key, {
+          key: group.key,
+          label: group.label,
+          logs: [],
+        });
+      }
+      groups.get(group.key).logs.push(log);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+      const aCreatedAt = a.logs?.[0]?.createdAt ? new Date(a.logs[0].createdAt).getTime() : 0;
+      const bCreatedAt = b.logs?.[0]?.createdAt ? new Date(b.logs[0].createdAt).getTime() : 0;
+      return bCreatedAt - aCreatedAt;
+    });
+  }, [filteredLogs, templateUriMatchers, templateIdIndex]);
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleString();
@@ -162,6 +271,7 @@ export default function TestLogsPage() {
           <p className="text-textMuted text-sm">
             {filteredLogs.length} {filteredLogs.length === 1 ? 'registro' : 'registros'}{' '}
             {filterStatus !== 'all' && `(${filterStatus})`}
+            {filteredLogs.length > 0 && ` · ${groupedLogs.length} grupos`}
           </p>
         </div>
 
@@ -275,95 +385,126 @@ export default function TestLogsPage() {
       {/* Logs List */}
       {!loading && filteredLogs.length > 0 && (
         <div className="space-y-3">
-          {filteredLogs.map((log) => {
-            const stats = getResultStats(log.results);
-            const duration =
-              log.finishedAt && log.startedAt
-                ? `${new Date(log.finishedAt) - new Date(log.startedAt)}ms`
-                : 'N/A';
-            const isSelected = selectedLogIds.includes(log.id);
-
-            return (
-              <BaseCard
-                key={log.id}
-                className={`cursor-pointer hover:shadow-lg transition-all border ${
-                  isSelected ? 'border-accent ring-2 ring-accent' : 'border-border'
-                } bg-primary`}
+          {groupedLogs.map((group) => (
+            <div key={group.key} className="space-y-3">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.key)}
+                className="w-full flex items-center justify-between px-2 py-2 rounded-lg border border-border bg-secondary/5 hover:bg-secondary/10 transition-colors"
               >
-                <div onClick={() => !bulkMode && setSelectedLog(log)} className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    {/* Selection Checkbox */}
-                    {bulkMode && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLogSelection(log.id);
-                        }}
-                        className="flex-shrink-0 mt-1"
-                      >
-                        {isSelected ? (
-                          <CheckSquare size={20} className="text-accent" />
-                        ) : (
-                          <Square size={20} className="text-textMuted" />
+                <span className="flex items-center gap-2">
+                  {expandedGroupKeys.includes(group.key) ? (
+                    <ChevronDown size={16} className="text-textMuted" />
+                  ) : (
+                    <ChevronRight size={16} className="text-textMuted" />
+                  )}
+                  <h2 className="text-lg font-bold text-text">{group.label}</h2>
+                </span>
+                <span className="text-xs text-textMuted">
+                  {group.logs.length} {group.logs.length === 1 ? 'log' : 'logs'}
+                </span>
+              </button>
+
+              {expandedGroupKeys.includes(group.key) &&
+                group.logs.map((log) => {
+                const stats = getResultStats(log.results);
+                const duration =
+                  log.finishedAt && log.startedAt
+                    ? `${new Date(log.finishedAt) - new Date(log.startedAt)}ms`
+                    : 'N/A';
+                const isSelected = selectedLogIds.includes(log.id);
+
+                return (
+                  <BaseCard
+                    key={log.id}
+                    className={`cursor-pointer hover:shadow-lg transition-all border ${
+                      isSelected ? 'border-accent ring-2 ring-accent' : 'border-border'
+                    } bg-primary`}
+                  >
+                    <div onClick={() => !bulkMode && setSelectedLog(log)} className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        {/* Selection Checkbox */}
+                        {bulkMode && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleLogSelection(log.id);
+                            }}
+                            className="flex-shrink-0 mt-1"
+                          >
+                            {isSelected ? (
+                              <CheckSquare size={20} className="text-accent" />
+                            ) : (
+                              <Square size={20} className="text-textMuted" />
+                            )}
+                          </button>
                         )}
-                      </button>
-                    )}
 
-                    {/* Log Info */}
-                    <div className="flex-1 flex flex-col gap-4 min-w-0">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(log.status)}`}
-                        >
-                          {log.status.toUpperCase()}
-                        </span>
-                        <code className="text-xs bg-bg px-2 py-1 rounded text-secondary">
-                          {log.id}
-                        </code>
-                      </div>
+                        {/* Log Info */}
+                        <div className="flex-1 flex flex-col gap-4 min-w-0">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(log.status)}`}
+                            >
+                              {log.status.toUpperCase()}
+                            </span>
+                            <code className="text-xs bg-bg px-2 py-1 rounded text-secondary">
+                              {log.id}
+                            </code>
+                          </div>
 
-                      {log.config?.endpoint && (
-                        <div className="flex items-center gap-4 text-sm text-text font-medium flex-wrap bg-secondary/5 px-4 py-1 rounded-lg">
-                          <span className="font-bold">{log.config.request?.method || 'GET'}</span>{' '}
-                          <span className="font-mono">{log.config.endpoint}</span>
+                          {log.config?.endpoint && (
+                            <div className="flex items-center gap-4 text-sm text-text font-medium flex-wrap bg-secondary/5 px-4 py-1 rounded-lg">
+                              <span className="font-bold">{log.config.request?.method || 'GET'}</span>{' '}
+                              <span className="font-mono">{log.config.endpoint}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-4 text-xs text-textMuted mt-2">
+                            <span>
+                              Creado: <strong>{formatDate(log.createdAt)}</strong>
+                            </span>
+                            {duration !== 'N/A' && (
+                              <span>
+                                Duracion: <strong>{duration}</strong>
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      )}
 
-                      <div className="flex items-center gap-4 text-xs text-textMuted mt-2">
-                        <span>Creado: <strong>{formatDate(log.createdAt)}</strong></span>
-                        {duration !== 'N/A' && <span>Duracion: <strong>{duration}</strong></span>}
+                        {/* Stats */}
+                        {stats && (
+                          <div className="text-right text-sm flex-shrink-0">
+                            <p className="text-text font-bold mb-1">{stats.total} peticiones</p>
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-green-600">{stats.success} ✓</span>
+                              <span className="text-red-600">{stats.error} ✗</span>
+                              <span className="text-yellow-600">{stats.rateLimited} ⚠</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Delete Button */}
+                        {!bulkMode && (
+                          <BaseButton
+                            variant="icon"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteLog(log.id);
+                            }}
+                            tooltip="Eliminar registro"
+                          >
+                            <Trash2 size={18} />
+                          </BaseButton>
+                        )}
                       </div>
                     </div>
-
-                    {/* Stats */}
-                    {stats && (
-                      <div className="text-right text-sm flex-shrink-0">
-                        <p className="text-text font-bold mb-1">{stats.total} peticiones</p>
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-green-600">{stats.success} ✓</span>
-                          <span className="text-red-600">{stats.error} ✗</span>
-                          <span className="text-yellow-600">{stats.rateLimited} ⚠</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Delete Button */}
-                    {!bulkMode && (
-                      <BaseButton variant='icon' size='icon'
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteLog(log.id);
-                        }}
-                        tooltip="Eliminar registro"
-                      >
-                        <Trash2 size={18} />
-                      </BaseButton>
-                    )}
-                  </div>
-                </div>
-              </BaseCard>
-            );
-          })}
+                  </BaseCard>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
 

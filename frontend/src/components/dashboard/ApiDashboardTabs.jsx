@@ -3,8 +3,6 @@ import React from 'react';
 const TABS = [
   { key: 'charts', label: 'Graficas' },
   { key: 'realtime', label: 'Peticiones en tiempo real' },
-  { key: 'cooldown', label: 'Eventos de cooldown' },
-  { key: 'storage', label: 'Almacenamiento local' },
 ];
 
 export default function ApiDashboardTabs({ activeTab, onChange }) {

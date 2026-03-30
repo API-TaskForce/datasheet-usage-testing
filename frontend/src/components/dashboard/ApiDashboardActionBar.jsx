@@ -25,6 +25,7 @@ export default function ApiDashboardActionBar({
   onRun,
   onConfigure,
   isDummyTemplate,
+  simulationOnly,
 }) {
   const [openMenu, setOpenMenu] = useState(false);
   const menuRef = useRef(null);
@@ -47,10 +48,12 @@ export default function ApiDashboardActionBar({
           variant={testMode === 'simulated' ? 'background' : 'primary'}
           size="sm"
           onClick={onToggleMode}
-          disabled={running || isDummyTemplate}
+          disabled={running || isDummyTemplate || simulationOnly}
           tooltip={
             isDummyTemplate
               ? 'Las APIs Dummy siempre usan modo simulado'
+              : simulationOnly
+                ? 'Modo simulado global activo: no se envian peticiones reales'
               : testMode === 'real'
                 ? 'Cambiar a modo simulado (sin peticiones reales)'
                 : 'Cambiar a modo real (envía peticiones a la API)'
@@ -59,6 +62,8 @@ export default function ApiDashboardActionBar({
           {testMode === 'real' ? <Rocket size={16} /> : <FlaskConical size={16} />}
           {isDummyTemplate
             ? 'Simulado (Dummy)'
+            : simulationOnly
+              ? 'Simulado (Global)'
             : testMode === 'real'
               ? 'Real'
               : 'Simulado'}
